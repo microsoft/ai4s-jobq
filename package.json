@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "azurite": "^3.34.0"
+  }
+}

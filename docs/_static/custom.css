@@ -1,0 +1,82 @@
+/* Solarized Light Theme for Sphinx RTD Theme */
+
+:root {
+    --color-background-primary: #fdf6e3;
+    --color-background-secondary: #eee8d5;
+    --color-text-primary: #657b83;
+    --color-link: #268bd2;
+    --color-link-hover: #6c71c4;
+    --color-sidebar-background: #eee8d5;
+    --color-sidebar-link: #657b83;
+    --color-sidebar-link-hover: #268bd2;
+    --color-sidebar-link-active: #cb4b16;
+    --color-code-background: #fdf6e3;
+    --color-code-text: #586e75;
+}
+
+/* General body and text */
+body {
+    background-color: var(--color-background-primary);
+    color: var(--color-text-primary);
+}
+
+/* Sidebar (TOC) */
+.wy-side-nav-search {
+    background-color: var(--color-sidebar-background);
+    color: var(--color-sidebar-link);
+}
+
+.wy-menu-vertical {
+    background-color: var(--color-sidebar-background);
+}
+
+.wy-menu-vertical a {
+    color: var(--color-sidebar-link);
+}
+
+.wy-menu-vertical a:hover {
+    color: var(--color-sidebar-link-hover);
+    background-color: #93a1a1;
+}
+
+.wy-menu-vertical a.current {
+    color: var(--color-sidebar-link-active);
+    background-color: #eee8d5;
+    font-weight: bold;
+}
+
+/* Nested TOC levels */
+.wy-menu-vertical ul ul {
+    margin-left: 10px;
+    border-left: 2px solid #93a1a1;
+    padding-left: 10px;
+}
+
+/* Code blocks */
+.rst-content code, .rst-content pre {
+    background-color: var(--color-code-background);
+    color: var(--color-code-text);
+}
+
+/* Admonitions */
+.admonition {
+    background-color: #eee8d5;
+    border-left: 4px solid #b58900;
+}
+
+.admonition-title {
+    color: #cb4b16;
+    font-weight: bold;
+}
+
+.icon-home {
+    color: var(--text-primary);
+}
+
+.wy-nav-side {
+    background-color: var(--color-sidebar-background);
+}
+
+::marker {
+    color: #268bd2;
+}
