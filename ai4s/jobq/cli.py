@@ -228,18 +228,6 @@ class QueueConfig:
                             exist_ok=exist_ok,
                         )
                     )
-                elif isinstance(self.backend_spec, ServiceBusSpec):
-                    credential = self.credential
-                    if not self.credential:
-                        credential = await stack.enter_async_context(get_token_credential())  # type: ignore
-                    queue = await stack.enter_async_context(
-                        JobQ.from_service_bus(
-                            self.backend_spec.name,
-                            fqns=f"{self.backend_spec.namespace}.servicebus.windows.net",
-                            credential=credential,
-                            exist_ok=exist_ok,
-                        )
-                    )
                 else:
                     raise ValueError(f"Unknown backend spec: {self.backend_spec}")
             yield queue
