@@ -33,7 +33,7 @@ author = "Thijs Vogels, Hannes Schulz, Stephanie Lanius"
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["myst_parser", "sphinx_sitemap"]
+extensions = ["myst_parser", "sphinx_sitemap", "sphinx_prompt", "sphinx_copybutton"]
 
 templates_path = ["_templates"]
 exclude_patterns: List[str] = []

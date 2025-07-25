@@ -35,6 +35,8 @@ dev = [
     "toml",
     "myst-parser",
     "sphinx-sitemap",
+    "sphinx-prompt",
+    "sphinx-copybutton",
 ]
 workforce = [
     "azure-ai-ml", "pydantic"
