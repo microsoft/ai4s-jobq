@@ -1,0 +1,10 @@
+{%- if builder != 'singlehtml' %}
+<div role="search">
+  <form id="rtd-search-form" class="wy-form custom-search-form" action="{{ pathto('search') }}" method="get">
+    <input title="Search text" type="text" name="q" placeholder="{{ _('Search docs') }}" />
+    <input title="Whether to check keywords" type="hidden" name="check_keywords" value="yes" />
+    <input title="Area to search" type="hidden" name="area" value="default" />
+    <button title="Run the search" type="submit">Go</button>
+  </form>
+</div>
+{%- endif %}
