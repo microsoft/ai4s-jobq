@@ -4,7 +4,7 @@ set -ex
 
 PORT=8080
 SERVER="http://localhost:$PORT"
-export PUPPETEER_EXECUTABLE_PATH=$(which chromium-browser)
+# export PUPPETEER_EXECUTABLE_PATH=$(which chromium-browser)
 
 export DOCS_BASEURL="$SERVER/"
 rm -fr dist-doc ; sphinx-build -b html ./docs dist-doc
