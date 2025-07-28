@@ -1,20 +1,16 @@
 AI for Science JobQ (|version|)
 ===============================
 
-The main documentation is hosted at `msr-ai4science.github.io/ai4s-jobq <https://msr-ai4science.github.io/ai4s-jobq>`_. You can use `aka.ms/jobq <https://aka.ms/jobq>`_ as a short link to this page.
 
+Usage
+-----
 
-Installation
-------------
+.. prompt:: bash $ auto
 
-For now, installation is done via pip after cloning the repository. We're
-working on publishing the package to an index as well.
+   $ pip install ai4s-jobq
+   $ ai4s-jobq storage/queue push -c "echo hello"
+   $ ai4s-jobq storage/queue worker
 
-.. code-block:: bash
-
-   git clone https://github.com/msr-ai4science/ai4s-jobq
-   cd ai4s-jobq
-   pip install [-e] .
 
 
 Who/what is this for?
@@ -28,6 +24,7 @@ The ``ai4s.jobq`` package enables multiple users to push work items to an `Azure
 
 By decoupling job creation from execution, ``ai4s.jobq`` allows users to queue up tasks in advance and process them at a controlled rate based on resource availability.
 
+
 Key Features
 -------------
 
@@ -36,16 +33,17 @@ Key Features
 - **Simple CLI Usage**: 
 
 
-  .. code-block:: bash
+  .. prompt:: bash $ auto
 
-     ai4s-jobq $my_storage_account/$my_unique_queue_name push -c "echo hello"
-     ai4s-jobq $my_storage_account/$my_unique_queue_name worker
+     $ ai4s-jobq $my_storage_account/$my_unique_queue_name push -c "echo hello"
+     $ ai4s-jobq $my_storage_account/$my_unique_queue_name worker
 
   Note that this requires Storage Queue Data Contributor role on the selected storage account.
 
 - **Advanced Python API**: Efficient handling of I/O-bound tasks, minimizing overhead in blob storage interactions and reducing the need for manual multi-threading/multi-processing.
 - **Scalability & Efficiency**: Enables large-scale distributed batch processing while being able to rely on cheap and available pre-emptible compute.
 - **Observability**: Workers can transmit telemetry which powers a Grafana dashboard to monitor queue progress.
+
 
 AI for Science: Powering Large-Scale Research
 ---------------------------------------------

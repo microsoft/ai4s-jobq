@@ -30,17 +30,14 @@ jobs:
         conda install nodejs
         npm install azurite
         ./node_modules/.bin/azurite-blob --skipApiVersionCheck --inMemoryPersistence --blobPort 10000 &
-        ./node_modules/.bin/azurite-blob --skipApiVersionCheck --inMemoryPersistence --blobPort 10010 &
-        ./node_modules/.bin/azurite-blob --skipApiVersionCheck --inMemoryPersistence --blobPort 10020 &
-        ./node_modules/.bin/azurite-blob --skipApiVersionCheck --inMemoryPersistence --blobPort 10030 &
-
         ./node_modules/.bin/azurite-queue --skipApiVersionCheck --inMemoryPersistence --queuePort 10001 &
-        ./node_modules/.bin/azurite-queue --skipApiVersionCheck --inMemoryPersistence --queuePort 10011 &
-        ./node_modules/.bin/azurite-queue --skipApiVersionCheck --inMemoryPersistence --queuePort 10021 &
-        ./node_modules/.bin/azurite-queue --skipApiVersionCheck --inMemoryPersistence --queuePort 10031 &
-
         python -m pip install --upgrade pip
         python -m pip install tox tox-gh-actions
     - name: Test with tox
       run: |
         tox -e ${{ matrix.toxenv }}
+
+    - name: Test Docs Accessibility
+      if: ${{ matrix.python-version == '3.10' }}
+      run: |
+        tox -e accessibility

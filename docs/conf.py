@@ -5,6 +5,7 @@
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+import os
 from pathlib import Path
 from typing import List
 
@@ -32,7 +33,7 @@ author = "Thijs Vogels, Hannes Schulz, Stephanie Lanius"
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["myst_parser"]
+extensions = ["myst_parser", "sphinx_sitemap", "sphinx_prompt", "sphinx_copybutton"]
 
 templates_path = ["_templates"]
 exclude_patterns: List[str] = []
@@ -53,7 +54,6 @@ html_logo = "_static/logo.png"
 html_css_files = ["custom.css"]
 html_theme_options = {
     "logo_only": True,
-    "display_version": False,
     "navigation_depth": 2,
 }
 
@@ -64,3 +64,10 @@ html_context = {
     "github_version": "main",  # or 'master' or any branch
     "conf_py_path": "/docs/",  # Path in the repo to your documentation source files
 }
+
+# during CI, we set this to localhost so that we can run pa11y over the page.
+html_baseurl = os.environ.get("DOCS_BASEURL", "https://microsoft.github.io/ai4s-jobq/")
+
+
+def setup(app):
+    app.add_js_file("custom.js")

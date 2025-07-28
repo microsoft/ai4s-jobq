@@ -1,18 +1,15 @@
 AI for Science JobQ
 ===================
 
-The main documentation is hosted at [msr-ai4science.github.io/ai4s-jobq](https://msr-ai4science.github.io/ai4s-jobq/). You can use [aka.ms/jobq](https://aka.ms/jobq) as a short link to this page.
+The main documentation is hosted at [microsoft.github.io/ai4s-jobq](https://microsoft.github.io/ai4s-jobq/).
 
 
 # Installation
 
-For now, installation is done via pip after cloning the repository. We're
-working on publishing the package to an index as well.
+To install, run
 
 ```bash
-git clone https://github.com/msr-ai4science/ai4s-jobq
-cd ai4s-jobq
-pip install [-e] .
+pip install ai4s-jobq
 ```
 
 The `ai4s.jobq` package enables multiple users to push work items to an [Azure Queue](https://azure.microsoft.com/en-us/products/storage/queues/), while one or more workers pull and process tasks asynchronously. This approach is useful in scenarios where:
@@ -38,7 +35,7 @@ By decoupling job creation from execution, `ai4s.jobq` allows users to queue up 
 
 ## **AI for Science: Powering Large-Scale Research**  
 
-`ai4s.jobq` is a **critical tool** in AI for Science, enabling researchers to handle massive computational workloads with ease. It plays a key role in:  
+`ai4s.jobq` is a **critical tool** in Microsoft Research -- AI for Science, enabling researchers to handle massive computational workloads with ease. It plays a key role in:  
 
 🔹 **Generating large-scale synthetic datasets** for AI-driven simulations.  
 🔹 **Efficiently pre- and post-processing** vast amounts of scientific data.  
