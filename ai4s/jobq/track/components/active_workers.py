@@ -2,14 +2,13 @@ import logging
 import urllib.parse
 from datetime import datetime, timedelta
 
+import dash_bootstrap_components as dbc
 import dash_table
 import pandas as pd
 import plotly.express as px
 from dash import Input, Output, dcc, html
-import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
 
-from ..utils import adaptive_interval
 from ..utils.log_analytics import get_distinct_values, run_query
 
 LOG = logging.getLogger(__name__)
@@ -125,23 +124,24 @@ def layout(default_queue=None):
                 },
             ),
             html.H2("Errors"),
-            html.Div(id='copy-toast', style={
-                'position': 'fixed',
-                'bottom': '20px',
-                'left': '20px',
-                'backgroundColor': '#ff0000',
-                'color': 'white',
-                'padding': '10px 15px',
-                'borderRadius': '5px',
-                'display': 'none',
-                'zIndex': 9999,
-                'boxShadow': '0 2px 6px rgba(0,0,0,0.3)',
-                'fontSize': '14px'
-            }),
+            html.Div(
+                id="copy-toast",
+                style={
+                    "position": "fixed",
+                    "bottom": "20px",
+                    "left": "20px",
+                    "backgroundColor": "#ff0000",
+                    "color": "white",
+                    "padding": "10px 15px",
+                    "borderRadius": "5px",
+                    "display": "none",
+                    "zIndex": 9999,
+                    "boxShadow": "0 2px 6px rgba(0,0,0,0.3)",
+                    "fontSize": "14px",
+                },
+            ),
             html.Div(
                 [
-                    
-
                     dash_table.DataTable(
                         id="errors-table",
                         style_table={"width": "100%", "overflowX": "hidden"},
@@ -192,20 +192,20 @@ def layout(default_queue=None):
                 ],
                 style={"zIndex": 1},
             ),
-            dcc.Store(id='copy-to-clipboard'),
-            dcc.Store(id='clipboard-data'),
-                    dbc.Modal(
-                        [
-                            dbc.ModalHeader("Error Log"),
-                            dbc.ModalBody(id="modal-body"),
-                            dbc.ModalFooter(dbc.Button("Close", id="close", className="ml-auto"))
-                        ],
-                        id="modal",
-                        is_open=False,
-                        centered=True,
-                        backdrop="true",
-                        style=dict(zIndex=1050, maxWidth="800px", width="90%"),
-                    ),
+            dcc.Store(id="copy-to-clipboard"),
+            dcc.Store(id="clipboard-data"),
+            dbc.Modal(
+                [
+                    dbc.ModalHeader("Error Log"),
+                    dbc.ModalBody(id="modal-body"),
+                    dbc.ModalFooter(dbc.Button("Close", id="close", className="ml-auto")),
+                ],
+                id="modal",
+                is_open=False,
+                centered=True,
+                backdrop="true",
+                style=dict(zIndex=1050, maxWidth="800px", width="90%"),
+            ),
             dcc.Interval(id="interval", interval=60 * 1000, n_intervals=0),
             dcc.Interval(id="resize-interval", interval=500, n_intervals=0),
             html.Script(

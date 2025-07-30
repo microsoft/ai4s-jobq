@@ -1,9 +1,9 @@
 import logging
 from datetime import datetime
 
+import dash
 import numpy as np
 import pandas as pd
-import dash
 from dash import Input, Output, State, html
 from dash.dash_table.Format import Format, Scheme
 from dash.exceptions import PreventUpdate
@@ -65,9 +65,7 @@ def register_callbacks(app):
         df["Duration"] = df["Duration"].astype(float)
         df["Exception"].replace("", np.nan, inplace=True)
         df["Exception"] = df["Exception"].fillna(df["ExceptionType"])
-        df["TaskId"] = df.apply(
-            lambda row: f"[{row['TaskId']}]({row['URL']})", axis=1
-        )
+        df["TaskId"] = df.apply(lambda row: f"[{row['TaskId']}]({row['URL']})", axis=1)
         df.drop(columns=["ExceptionType", "URL"], inplace=True)
 
         columns = [
@@ -102,7 +100,7 @@ def register_callbacks(app):
         Input("close", "n_clicks"),
         State("modal", "is_open"),
         State("errors-table", "data"),
-        prevent_initial_call=True
+        prevent_initial_call=True,
     )
     def display_modal(active_cell, close_click, is_open, data):
         ctx = dash.callback_context
@@ -110,15 +108,15 @@ def register_callbacks(app):
         if not ctx.triggered:
             return dash.no_update, dash.no_update, dash.no_update
 
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
 
         if trigger_id == "close":
             return False, dash.no_update, dash.no_update
 
         if trigger_id == "errors-table" and active_cell:
-            row = active_cell['row']
-            col = active_cell['column_id']
-            if col == 'Logs':
+            row = active_cell["row"]
+            col = active_cell["column_id"]
+            if col == "Logs":
                 if data[row][col].strip():
                     return True, html.Pre(data[row][col]), data[row][col]
                 else:
@@ -146,6 +144,6 @@ def register_callbacks(app):
             return null;
         }
         """,
-        Output('clipboard-data', 'data'),
-        Input('copy-to-clipboard', 'data')
+        Output("clipboard-data", "data"),
+        Input("copy-to-clipboard", "data"),
     )
