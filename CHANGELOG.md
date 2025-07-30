@@ -1,6 +1,14 @@
 CHANGELOG
 =========
 
+2.7.0 (2025-07-30)
+------------------
+
+Features:
+
+* track: improved error table presentation with formatted error pane below table.
+* track: add hyperlinks to aml job to table
+
 2.6.1 (2025-07-18)
 ------------------
 

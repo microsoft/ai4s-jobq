@@ -6,6 +6,7 @@ import dash_table
 import pandas as pd
 import plotly.express as px
 from dash import Input, Output, dcc, html
+import dash_bootstrap_components as dbc
 from dash.exceptions import PreventUpdate
 
 from ..utils import adaptive_interval
@@ -124,10 +125,26 @@ def layout(default_queue=None):
                 },
             ),
             html.H2("Errors"),
+            html.Div(id='copy-toast', style={
+                'position': 'fixed',
+                'bottom': '20px',
+                'left': '20px',
+                'backgroundColor': '#ff0000',
+                'color': 'white',
+                'padding': '10px 15px',
+                'borderRadius': '5px',
+                'display': 'none',
+                'zIndex': 9999,
+                'boxShadow': '0 2px 6px rgba(0,0,0,0.3)',
+                'fontSize': '14px'
+            }),
             html.Div(
                 [
+                    
+
                     dash_table.DataTable(
                         id="errors-table",
+                        style_table={"width": "100%", "overflowX": "hidden"},
                         style_cell_conditional=[
                             {
                                 "if": {"column_id": "TimeGenerated"},
@@ -143,13 +160,23 @@ def layout(default_queue=None):
                                 "minWidth": "150px",
                                 "maxWidth": "300px",
                                 "overflow": "hidden",
+                                "presentation": "markdown",
                                 "textOverflow": "ellipsis",
                             },
                             {
                                 "if": {"column_id": "Duration"},
                                 "width": "50px",
-                                "minWidth": "150px",
+                                "minWidth": "50px",
                                 "maxWidth": "150px",
+                                "overflow": "hidden",
+                                "textOverflow": "ellipsis",
+                            },
+                            {
+                                "if": {"column_id": "Exception"},
+                                "width": "50px",
+                                "minWidth": "50px",
+                                "maxWidth": "150px",
+                                "textAlign": "left",
                                 "overflow": "hidden",
                                 "textOverflow": "ellipsis",
                             },
@@ -157,12 +184,28 @@ def layout(default_queue=None):
                                 "if": {"column_id": "Logs"},
                                 "overflow": "hidden",
                                 "textOverflow": "ellipsis",
+                                "textAlign": "left",
                                 "whiteSpace": "nowrap",
                             },
                         ],
-                    )
-                ]
+                    ),
+                ],
+                style={"zIndex": 1},
             ),
+            dcc.Store(id='copy-to-clipboard'),
+            dcc.Store(id='clipboard-data'),
+                    dbc.Modal(
+                        [
+                            dbc.ModalHeader("Error Log"),
+                            dbc.ModalBody(id="modal-body"),
+                            dbc.ModalFooter(dbc.Button("Close", id="close", className="ml-auto"))
+                        ],
+                        id="modal",
+                        is_open=False,
+                        centered=True,
+                        backdrop="true",
+                        style=dict(zIndex=1050, maxWidth="800px", width="90%"),
+                    ),
             dcc.Interval(id="interval", interval=60 * 1000, n_intervals=0),
             dcc.Interval(id="resize-interval", interval=500, n_intervals=0),
             html.Script(
@@ -196,7 +239,7 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        dt = adaptive_interval(end - start)
+        dt = "15m"
         query = f"""
         let dt = {dt};
         AppTraces

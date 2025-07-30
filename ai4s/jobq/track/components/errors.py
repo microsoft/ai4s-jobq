@@ -3,7 +3,8 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from dash import Input, Output
+import dash
+from dash import Input, Output, State, html
 from dash.dash_table.Format import Format, Scheme
 from dash.exceptions import PreventUpdate
 
@@ -31,6 +32,7 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
+        TID = "72f988bf-86f1-41af-91ab-2d7cd011db47"
         query = f"""
         AppExceptions
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
@@ -38,8 +40,9 @@ def register_callbacks(app):
             | where InnermostMessage has "Failure"
             | extend TaskId = tostring(Properties.task_id),
                      Duration=todecimal(Properties.duration_s),
+                     URL=strcat("https://ml.azure.com/runs/", Properties.azureml_run_id, "?tid={TID}&wsid=", "/subscriptions/", Properties.azureml_subscription_id, "/resourceGroups/", Properties.azureml_resource_group, "/workspaces/", Properties.azureml_workspace_name),
                      Exception = extract(@"raise .*\\n(.*)", 1, tostring(Properties.log))
-            | project TimeGenerated, TaskId, Duration, Exception, Logs=tostring(Properties.log), ExceptionType
+            | project TimeGenerated, TaskId, Duration, Exception, Logs=tostring(Properties.log), ExceptionType, URL
             | sort by TimeGenerated desc
             | limit 100
         """
@@ -54,6 +57,7 @@ def register_callbacks(app):
                 "Exception",
                 "Logs",
                 "ExceptionType",
+                "URL",
             ],
         )
 
@@ -61,7 +65,10 @@ def register_callbacks(app):
         df["Duration"] = df["Duration"].astype(float)
         df["Exception"].replace("", np.nan, inplace=True)
         df["Exception"] = df["Exception"].fillna(df["ExceptionType"])
-        df.drop(columns=["ExceptionType"], inplace=True)
+        df["TaskId"] = df.apply(
+            lambda row: f"[{row['TaskId']}]({row['URL']})", axis=1
+        )
+        df.drop(columns=["ExceptionType", "URL"], inplace=True)
 
         columns = [
             {"name": "Time", "id": "TimeGenerated", "type": "datetime"},
@@ -82,7 +89,63 @@ def register_callbacks(app):
         ]
 
         tooltip_data = [
-            {"Logs": {"type": "text", "value": row["Logs"]}} for _, row in df.iterrows()
+            # {"Logs": {"type": "markdown", "value": ("<pre>" + row["Logs"] + "</pre>")}} for _, row in df.iterrows()
         ]
 
         return df.to_dict("records"), columns, tooltip_data
+
+    @app.callback(
+        Output("modal", "is_open"),
+        Output("modal-body", "children"),
+        Output("copy-to-clipboard", "data"),
+        Input("errors-table", "active_cell"),
+        Input("close", "n_clicks"),
+        State("modal", "is_open"),
+        State("errors-table", "data"),
+        prevent_initial_call=True
+    )
+    def display_modal(active_cell, close_click, is_open, data):
+        ctx = dash.callback_context
+
+        if not ctx.triggered:
+            return dash.no_update, dash.no_update, dash.no_update
+
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+        if trigger_id == "close":
+            return False, dash.no_update, dash.no_update
+
+        if trigger_id == "errors-table" and active_cell:
+            row = active_cell['row']
+            col = active_cell['column_id']
+            if col == 'Logs':
+                if data[row][col].strip():
+                    return True, html.Pre(data[row][col]), data[row][col]
+                else:
+                    return False, dash.no_update, dash.no_update
+            else:
+                return dash.no_update, dash.no_update, data[row][col]
+        return False, dash.no_update, dash.no_update
+
+    app.clientside_callback(
+        """
+        function(value) {
+            if (!value) return null;
+
+            navigator.clipboard.writeText(value).then(() => {
+                const toast = document.getElementById('copy-toast');
+                if (toast) {
+                    toast.innerText = 'Copied!';
+                    toast.style.display = 'block';
+                    setTimeout(() => {
+                        toast.style.display = 'none';
+                    }, 1500);
+                }
+            });
+
+            return null;
+        }
+        """,
+        Output('clipboard-data', 'data'),
+        Input('copy-to-clipboard', 'data')
+    )
