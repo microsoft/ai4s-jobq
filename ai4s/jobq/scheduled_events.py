@@ -129,8 +129,7 @@ class PreemptionEventHandler(ScheduledEventHandler):
                     f"Not Before: {event.NotBefore!r}, Description: {event.Description!r}",
                     extra={
                         "worker_id": self.worker_id,
-                        "queue": self.queue.full_name if self.queue else None,
-                        "environment": self.environment_name,
+                        "event": "preemption_detected",
                     },
                 )
                 is_preempted = True
@@ -144,8 +143,7 @@ class PreemptionEventHandler(ScheduledEventHandler):
                 "Preemption event is not present anymore, apparently it's obsolete.",
                 extra={
                     "worker_id": self.worker_id,
-                    "queue": self.queue.full_name if self.queue else None,
-                    "environment": self.environment_name,
+                    "event": "preemption_cleared",
                 },
             )
             if not self.disabled:

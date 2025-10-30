@@ -8,12 +8,12 @@ universal = true
 [project]
 name = "ai4s-jobq"
 
-version = "2.6.0"
+version = "2.11.1"
 
 dependencies = [
   "aiohttp",
   "rich",
-  "asyncclick",
+  "asyncclick < 8.2.2",  # pinned because 8.2.2 suddenly requires Python 3.11
   "azure-identity",
   "azure-monitor-opentelemetry",
   "azure-storage-blob",
@@ -24,6 +24,8 @@ dependencies = [
   "anyio",   # implicit dependency of asyncclick
   "pyyaml",
   "cachetools",
+  "azure-servicebus",
+  "appdirs",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +41,7 @@ dev = [
     "sphinx-copybutton",
 ]
 workforce = [
-    "azure-ai-ml", "pydantic"
+    "azure-ai-ml", "pydantic",
 ]
 servicebus = [
   "azure-servicebus"
@@ -72,6 +74,7 @@ module = [
   "azure.data.tables.*",
   "azure.monitor.query.*",
   "opencensus.ext.azure.*",
+  "appdirs",
 ]
 disallow_untyped_calls = false
 warn_unused_ignores = false

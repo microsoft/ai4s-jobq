@@ -2,6 +2,7 @@ import asyncio
 import logging
 import typing as ty
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
+from dataclasses import replace as replace_in_dataclass
 from datetime import datetime, timedelta, timezone
 from types import TracebackType
 
@@ -44,7 +45,9 @@ class StorageQueueEnvelope(Envelope):
     def task(self) -> Task:
         return self._task
 
-    async def delete(self) -> None:
+    async def delete(self, success: bool, error: str | None = None) -> None:
+        if not success:
+            await self.backend.add_to_dead_letter_queue(self.task, error)
         await self.backend.delete(self.message)
 
     async def cancel_heartbeat(self) -> None:
@@ -87,20 +90,33 @@ class StorageQueueBackend(JobQBackend):
         self.storage_account = storage_account
         self.queue_name = queue_name
         self.queue_client: ty.Optional[QueueClient] = None
+        self.dead_letter_queue_client: ty.Optional[QueueClient] = None
         self.credential = credential
 
         if self.queue_name == "my-unique-queue":
             raise ValueError("Don't be lazy and change the queue name to something unique.")
+
+    @property
+    def dead_letter_queue_name(self) -> str:
+        return f"{self.queue_name}-failed"
 
     async def __aenter__(self) -> "StorageQueueBackend":
         if self.connection_string:
             self.queue_client = QueueClient.from_connection_string(
                 self.connection_string, self.queue_name
             )
+            self.dead_letter_queue_client = QueueClient.from_connection_string(
+                self.connection_string, self.dead_letter_queue_name
+            )
         elif self.credential:
             self.queue_client = QueueClient(
                 account_url=f"https://{self.storage_account}.queue.core.windows.net",
                 queue_name=self.queue_name,
+                credential=self.credential,
+            )
+            self.dead_letter_queue_client = QueueClient(
+                account_url=f"https://{self.storage_account}.queue.core.windows.net",
+                queue_name=self.dead_letter_queue_name,
                 credential=self.credential,
             )
         else:
@@ -115,6 +131,8 @@ class StorageQueueBackend(JobQBackend):
     ) -> None:
         assert self.queue_client is not None
         await self.queue_client.__aexit__(exc_type, exc, tb)  # type: ignore
+        if self.dead_letter_queue_client is not None:
+            await self.dead_letter_queue_client.__aexit__(exc_type, exc, tb)
 
     async def push(self, task: Task) -> str:
         assert self.queue_client is not None
@@ -159,24 +177,24 @@ class StorageQueueBackend(JobQBackend):
             try:
                 task = Task.deserialize(envelope["content"])
             except Exception:
-                LOG.warning(
-                    "Deleting message %s because task deserialization failed.",
-                    envelope.id,
-                )
+                LOG.warning("Deleting message %s because task deserialization failed.", envelope.id)
                 await self.queue_client.delete_message(envelope)
                 raise
             else:
                 yield StorageQueueEnvelope(
-                    envelope,
-                    task,
-                    self,
-                    cancel_heartbeat_event,
-                    heartbeat_cancelled_event,
+                    envelope, task, self, cancel_heartbeat_event, heartbeat_cancelled_event
                 )
 
-    async def delete(self, envelope: QueueMessage) -> None:
+    async def add_to_dead_letter_queue(self, task: Task, error: str | None = None) -> None:
+        if self.dead_letter_queue_client is None:
+            return
+        task = replace_in_dataclass(task, error=error)
+        LOG.debug("Adding task %r to dead letter queue %r", task.id, self.dead_letter_queue_name)
+        await self.dead_letter_queue_client.send_message(task.serialize(), time_to_live=-1)
+
+    async def delete(self, message: QueueMessage) -> None:
         assert self.queue_client is not None
-        await self.queue_client.delete_message(envelope)
+        await self.queue_client.delete_message(message)
 
     async def create(self, exist_ok: bool = True) -> None:
         assert self.queue_client is not None
@@ -190,6 +208,13 @@ class StorageQueueBackend(JobQBackend):
                 raise ValueError(
                     f"Invalid queue name '{self.queue_name}'. Only lowercase alphanumeric characters and hyphens are allowed."
                 ) from e
+
+        if self.dead_letter_queue_client is not None:
+            try:
+                await self.dead_letter_queue_client.create_queue()
+            except azure.core.exceptions.ResourceExistsError:
+                if not exist_ok:
+                    raise
 
     async def clear(self) -> None:
         assert self.queue_client is not None
@@ -255,8 +280,7 @@ class StorageQueueBackend(JobQBackend):
                         )
                     except Exception as e:
                         LOG.exception(
-                            f"Failed to send heartbeat for message {message.id}: ",
-                            exc_info=e,
+                            f"Failed to send heartbeat for message {message.id}: ", exc_info=e
                         )
                     with suppress(asyncio.TimeoutError):
                         await asyncio.wait_for(cancel_heartbeat_event.wait(), interval)

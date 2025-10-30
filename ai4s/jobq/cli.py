@@ -272,7 +272,9 @@ async def main(
     - sb://<namespace> (Azure Service Bus)
     - <storage-account> (Azure Storage Queue)
     """
+    # log level for ai4s-jobq modules
     internal_log_level = max(logging.DEBUG, logging.INFO - 10 * (verbose - quiet))
+    # log level for other modules.
     base_log_level = logging.WARNING
     if abs(verbose - quiet) >= 2:
         diff = int(math.copysign(abs(verbose - quiet) - 2, verbose - quiet))
@@ -302,14 +304,9 @@ async def main(
     show_default=True,
 )
 @click.option("--command", "-c", multiple=True, help="The command(s) to execute.")
+@click.option("--wait", is_flag=True, help="Wait for the job to finish and print its return value.")
 @click.option(
-    "--wait",
-    is_flag=True,
-    help="Wait for the job to finish and print its return value.",
-)
-@click.option(
-    "--bg-dirsync-to",
-    help="Synchronize the $AMLT_DIRSYNC_DIR to this location in the background.",
+    "--bg-dirsync-to", help="Synchronize the $AMLT_DIRSYNC_DIR to this location in the background."
 )
 @click.option(
     "--env",
@@ -414,7 +411,7 @@ async def sas(ctx: click.Context, expiry: timedelta) -> None:
     "-t",
     type=DurationParam(),
     default="24h",
-    help="Time until SAS token expires and workers (have to) stop.",
+    help="Soft time limit. Tasks will receive SIGTERM when this is reached.",
 )
 @click.argument("amlt-args", nargs=-1, type=click.UNPROCESSED, metavar="AMLT_ARGS")
 @click.pass_context
@@ -546,7 +543,7 @@ async def pull(
     type=DurationParam(),
     envvar="JOBQ_TIME_LIMIT",
     default="1d",
-    help="Soft time limit. No new tasks will be started after this time limit is reached.",
+    help="Soft time limit. Tasks will receive SIGTERM when this is reached.",
     show_default=True,
 )
 @click.option(

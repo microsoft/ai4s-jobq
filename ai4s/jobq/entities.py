@@ -59,6 +59,7 @@ class Response:
 class Task:
     kwargs: Dict[str, Any]
     num_retries: int
+    error: Optional[str] = None
     reply_requested: bool = False
     id: Optional[str] = field(
         default_factory=lambda: uuid.uuid4().hex if not JOBQ_DETERMINISTIC_IDS else None

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 import plotly.express as px
@@ -22,12 +22,14 @@ def register_callbacks(app):
     )
     def update_graph(n, start_date, start_time, queue):
         try:
-            start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
+            start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M").replace(
+                tzinfo=timezone.utc
+            )
         except Exception as e:
             LOG.error(f"Error parsing dates: {e}")
             raise PreventUpdate
 
-        end = datetime.utcnow()
+        end = datetime.now(timezone.utc)
 
         dt = adaptive_interval(end - start)
 

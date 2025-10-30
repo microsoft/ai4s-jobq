@@ -23,7 +23,7 @@ By decoupling job creation from execution, `ai4s.jobq` allows users to queue up 
 ## Key Features
 - **Native Azure Queues**: Uses Azure Storage queues without requiring additional services.
 - **Robustness**: Jobs automatically reappear in the queue if a worker fails to complete them (for example, after pre-emptions or crashes).
-- **Simple CLI Usage**: 
+- **Simple CLI Usage**:
   ```bash
   ai4s-jobq $my_storage_account/$my_unique_queue_name push -c "echo hello"
   ai4s-jobq $my_storage_account/$my_unique_queue_name worker
@@ -33,18 +33,19 @@ By decoupling job creation from execution, `ai4s.jobq` allows users to queue up 
 - **Scalability & Efficiency**: Enables large-scale distributed batch processing while being able to rely on cheap and available pre-emptible compute.
 - **Observability**: Workers can transmit telemetry which powers a Grafana dashboard to monitor queue progress.
 
-## **AI for Science: Powering Large-Scale Research**  
+## **AI for Science: Powering Large-Scale Research**
 
 `ai4s.jobq` is a **critical tool** in Microsoft Research -- AI for Science, enabling researchers to handle massive computational workloads with ease. It plays a key role in:  
 
-🔹 **Generating large-scale synthetic datasets** for AI-driven simulations.  
-🔹 **Efficiently pre- and post-processing** vast amounts of scientific data.  
-🔹 **Scaling model evaluation** by managing high-throughput inference workloads.  
+🔹 **Generating large-scale synthetic datasets** for AI-driven simulations.
+🔹 **Efficiently pre- and post-processing** vast amounts of scientific data.
+🔹 **Scaling model evaluation** by managing high-throughput inference workloads.
 
-### **Why AI for Science Relies on `ai4s.jobq`**  
+### **Why AI for Science Relies on `ai4s.jobq`**
 
-🚀 **Maximizing Compute Efficiency**  
+🚀 **Maximizing Compute Efficiency**
 By seamlessly leveraging **preemptible compute across diverse environments**, `ai4s.jobq` significantly boosts scalability while reducing costs—accelerating scientific discovery without wasted resources.  
 
-🛠 **Focusing on Science, Not Infrastructure**  
+🛠 **Focusing on Science, Not Infrastructure**
 Researchers can **stay focused on their work** instead of dealing with unreliable infrastructure. `ai4s.jobq` abstracts away system failures and optimizes task execution, **freeing up valuable time** for breakthroughs in AI and science.  
+

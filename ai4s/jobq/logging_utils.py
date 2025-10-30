@@ -211,6 +211,7 @@ def setup_logging(
             flt = CustomDimensionsFilter(custom_dims)
             LOG.addFilter(flt)
             TASK_LOG.addFilter(flt)
+            azure_handler.addFilter(flt)
 
     LOG.setLevel(internal_log_level)
     TRACK_LOG.setLevel(internal_log_level)

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 import re
 import shutil
 import signal
@@ -16,6 +17,7 @@ from azure.storage.queue.aio import QueueClient
 
 from ai4s.jobq import cli
 from ai4s.jobq.orchestration.manager import TooManyFailuresException
+from ai4s.jobq.orchestration.pid_file import send_signal_by_glob
 from ai4s.jobq.work import Processor
 
 QUEUE_PORT = os.environ.get("QUEUE_PORT", "10001")
@@ -26,29 +28,32 @@ CONNSTR = (
 QUEUE = "testq"
 
 
+@pytest.fixture
+async def queue_name():
+    current_number = random.choice(range(1_000_000))
+    return f"queue{current_number}"
+
+
 async def cli_cmd(
     *args: str,
+    queue_name: str = QUEUE,
     queue_spec: Optional[List[str]] = None,
     options: Optional[List[str]] = None,
     exit_code=0,
 ) -> str:
     options = options or []
-    queue_spec = queue_spec or ["--conn-str", CONNSTR, f"foo/{QUEUE}"]
+    queue_spec = queue_spec or ["--conn-str", CONNSTR, f"foo/{queue_name}"]
     if True:
         result = await CliRunner().invoke(
             cli.main, (*options, *queue_spec, *args), catch_exceptions=False
         )
     else:
-        cli.main(
-            (*options, *queue_spec, *args),
-            standalone_mode=False,
-            catch_exceptions=False,
-        )
+        cli.main((*options, *queue_spec, *args), standalone_mode=False, catch_exceptions=False)
     assert result.exit_code == exit_code, result.output
     return result.output
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=False)
 async def clean_queue():
     try:
         async with QueueClient.from_connection_string(CONNSTR, QUEUE) as queue:
@@ -218,10 +223,42 @@ environment:
 
 
 @pytest.mark.asyncio
-async def test_signal_handling(mocker, tmp_path) -> None:
+async def test_time_limit(mocker, tmp_path, caplog, queue_name):
+    """
+    Check that when the time-limit of the worker is reached, a shutdown is initiated.
+    """
+    await cli_cmd(
+        "push",
+        "-c",
+        'set -o monitor; echo "working in shell $!" ; sleep 10 & trap "echo ba""sh got signal-A; kill -15 $!" SIGTERM; echo "Trap set up." ; wait $!',
+        queue_name=queue_name,
+    )
+
+    t0 = datetime.now()
+    await cli_cmd(
+        "worker",
+        "--time-limit",
+        "3s",
+        "--visibility-timeout",
+        "30s",
+        options=["-vv"],
+        queue_name=queue_name,
+    )
+    t1 = datetime.now()
+    assert str(caplog.messages).count("Time limit reached. Triggering shutdown handler.") == 1
+    assert str(caplog.messages).count("bash got signal-A") == 1
+
+    # should be done in less than the task's sleep time
+    assert (t1 - t0).total_seconds() < 9
+
+
+@pytest.mark.asyncio
+async def test_signal_handling(mocker, tmp_path, queue_name) -> None:
     """
     Check that we can cleanly abort workers when the top level process receives a SIGTERM.
     """
+
+    q = dict(queue_name=queue_name)
 
     # insert useless quotes in the print string so that we can check whether it's actually
     # executed, as opposed the command being printed.
@@ -229,17 +266,19 @@ async def test_signal_handling(mocker, tmp_path) -> None:
         "push",
         "-c",
         'sleep 10 & trap "echo ba""sh got signal-A; kill -15 $!" SIGTERM; wait $!',
+        **q,
     )
     await cli_cmd(
         "push",
         "-c",
         'sleep 10 & trap "echo ba""sh got signal-B; kill -15 $!" SIGTERM; wait $!',
+        **q,
     )
     worker_cmd = (
         shutil.which("ai4s-jobq") or "ai4s-jobq",
         "-vv",
         "--conn-str=" + CONNSTR,
-        "foo/" + QUEUE,
+        "foo/" + queue_name,
         "worker",
         "-n",
         "2",
@@ -267,17 +306,19 @@ async def test_signal_handling(mocker, tmp_path) -> None:
     await asyncio.sleep(2)  # give azurite some time
 
     n = 0
-    async with QueueClient.from_connection_string(CONNSTR, QUEUE) as queue:
+    async with QueueClient.from_connection_string(CONNSTR, queue_name) as queue:
         async for msg in queue.receive_messages(timeout=1):
             n += 1
     assert n == 2
 
 
 @pytest.mark.asyncio
-async def test_signal_handling_resume(mocker, tmp_path) -> None:
+async def test_signal_handling_resume(mocker, tmp_path, queue_name) -> None:
     """
     Check that workers receives SIGTERM but then pick up next task when not preempted.
     """
+
+    q = dict(queue_name=queue_name)
 
     mocker.patch.dict(
         os.environ,
@@ -290,17 +331,19 @@ async def test_signal_handling_resume(mocker, tmp_path) -> None:
         "push",
         "-c",
         'sleep 4 & trap "echo ba""sh got signal-A; kill -15 $!" SIGTERM; wait $!; exit 0',
+        **q,
     )
     await cli_cmd(
         "push",
         "-c",
         'sleep 3 & trap "echo ba""sh got signal-B; kill -15 $!" SIGTERM; wait $!; exit 0',
+        **q,
     )
     worker_cmd = (
         shutil.which("ai4s-jobq") or "ai4s-jobq",
         "-vv",
         "--conn-str=" + CONNSTR,
-        "foo/" + QUEUE,
+        "foo/" + queue_name,
         "worker",
         "--visibility-timeout=30s",
     )
@@ -317,9 +360,9 @@ async def test_signal_handling_resume(mocker, tmp_path) -> None:
         stdout, stderr = proc.communicate()
         end = datetime.now()
 
-    assert "No preemption occurred within 2 seconds. Resuming work." in re.sub(
-        r"\s+", " ", stdout
-    ), stdout + stderr
+    assert "No preemption occurred within 2 seconds." in re.sub(r"\s+", " ", stdout), (
+        stdout + stderr
+    )
     assert (stderr + stdout).count("bash got signal-A") == 1
     assert (stderr + stdout).count("bash got signal-B") == 0
     assert (stderr + stdout).count("Requeueing") == 1
@@ -329,7 +372,7 @@ async def test_signal_handling_resume(mocker, tmp_path) -> None:
     await asyncio.sleep(2)  # give azurite some time
 
     n = 0
-    async with QueueClient.from_connection_string(CONNSTR, QUEUE) as queue:
+    async with QueueClient.from_connection_string(CONNSTR, queue_name) as queue:
         async for msg in queue.receive_messages(timeout=1):
             n += 1
     assert n == 0
@@ -369,3 +412,215 @@ class DummyProcessor(AbstractAsyncContextManager):
     await asyncio.sleep(1)
     pull_res = await cli_cmd("pull", "--proc", "procpkg.dummy_proc.DummyProcessor", options=["-vv"])
     assert "Called with cmd: custom hello world" in pull_res
+
+
+@pytest.mark.asyncio
+async def test_signal1_graceful_shutdown_from_servicebus_handled_correctly(
+    mocker, tmp_path, queue_name
+) -> None:
+    """
+    Check that workers receives SIGUSR1, which means do-not-accept-new-tasks. This is usually sent
+    by the workforce-monitor. This test tests the orchestration/manager.py behaves correctly.
+    """
+
+    mocker.patch.dict(
+        os.environ,
+        {"JOBQ_PREEMPTION_TIMEOUT": "2"},
+    )
+
+    # insert useless quotes in the print string so that we can check whether it's actually
+    # executed, as opposed the command being printed.
+    await cli_cmd(
+        "push",
+        "-c",
+        'sleep 10 & trap "echo ba""sh got signal-A; kill -15 $!" SIGTERM; wait $!; echo "tas""k a finished"; exit 0',
+        queue_name=queue_name,
+    )
+    await cli_cmd(
+        "push",
+        "-c",
+        'sleep 10 & trap "echo ba""sh got signal-B; kill -15 $!" SIGTERM; wait $!; echo "tas""k b finished"; exit 0',
+        queue_name=queue_name,
+    )
+    worker_cmd = (
+        shutil.which("ai4s-jobq") or "ai4s-jobq",
+        "-vv",
+        "--conn-str=" + CONNSTR,
+        "foo/" + queue_name,
+        "worker",
+        "--visibility-timeout=30s",
+    )
+
+    with subprocess.Popen(
+        worker_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        env={"JOBQ_PID_DIR": str(tmp_path)},
+    ) as proc:
+        # give everything 2 seconds to start
+        with pytest.raises(subprocess.TimeoutExpired):
+            proc.communicate(timeout=2)
+        start = datetime.now()
+
+        # sending SIGUSR1 to glob, queue should do-not-accept-new-tasks and finish current one
+        send_signal_by_glob(
+            pattern=f"{tmp_path}/*.pid",
+            signal_to_send=signal.SIGUSR1,
+        )
+        stdout, stderr = proc.communicate()
+        end = datetime.now()
+
+    # we expect task a to finish, and task b should not be started
+    assert (stderr + stdout).count("bash got signal-A") == 0  # task should not be cancelled
+    assert (stderr + stdout).count("bash got signal-B") == 0  # task should not be cancelled
+    assert (stderr + stdout).count("Requeueing") == 0
+    assert (stderr + stdout).count(
+        "Soft shutdown requested. Will not accept additional tasks and sleep until this process is terminated."
+    ) == 1
+    assert (stderr + stdout).count("Stopping as we are not accepting new tasks.") == 1
+    assert (stderr + stdout).count("task a finished") == 1
+    assert (stderr + stdout).count("task b finished") == 0
+    assert (stderr + stdout).count("Stopping workforce monitor") == 1
+    # should be done in less than the task's sleep time
+    assert (end - start).total_seconds() < 11
+
+    await asyncio.sleep(2)  # give azurite some time
+
+    n = 0
+    # task-b should still be queued, we verify this here
+    async with QueueClient.from_connection_string(CONNSTR, queue_name) as queue:
+        async for _ in queue.receive_messages(timeout=1):
+            n += 1
+    assert n == 1
+
+
+@pytest.mark.asyncio
+async def test_signal2_graceful_shutdown_from_servicebus_handled_correctly(
+    mocker, tmp_path, queue_name
+) -> None:
+    """
+    Check that workers receives SIGUSR2, which means graceful-shutdown. This is usually sent
+    by the workforce-monitor. This test tests the orchestration/manager.py behaves correctly.
+    """
+
+    mocker.patch.dict(
+        os.environ,
+        {"JOBQ_PREEMPTION_TIMEOUT": "2"},
+    )
+
+    # insert useless quotes in the print string so that we can check whether it's actually
+    # executed, as opposed the command being printed.
+    await cli_cmd(
+        "push",
+        "-c",
+        'sleep 10 & trap "echo ba""sh got signal-A; kill -15 $!" SIGTERM; wait $!; echo "tas""k a finished"; exit 0',
+        queue_name=queue_name,
+    )
+    await cli_cmd(
+        "push",
+        "-c",
+        'sleep 10 & trap "echo ba""sh got signal-B; kill -15 $!" SIGTERM; wait $!; echo "tas""k b finished"; exit 0',
+        queue_name=queue_name,
+    )
+    worker_cmd = (
+        shutil.which("ai4s-jobq") or "ai4s-jobq",
+        "-vv",
+        "--conn-str=" + CONNSTR,
+        "foo/" + queue_name,
+        "worker",
+        "--visibility-timeout=30s",
+    )
+
+    with subprocess.Popen(
+        worker_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        env={"JOBQ_PID_DIR": str(tmp_path)},
+    ) as proc:
+        # give everything 2 seconds to start
+        with pytest.raises(subprocess.TimeoutExpired):
+            proc.communicate(timeout=2)
+        start = datetime.now()
+
+        # sending SIGUSR1 to glob, queue should do graceful-shutdown
+        send_signal_by_glob(
+            pattern=f"{tmp_path}/*.pid",
+            signal_to_send=signal.SIGUSR2,
+        )
+        stdout, stderr = proc.communicate()
+        end = datetime.now()
+
+    # we expect task a to be interrupted and requeued, and task b should not be started
+    assert (stderr + stdout).count("bash got signal-A") == 1  # task should not be cancelled
+    assert (stderr + stdout).count("bash got signal-B") == 0  # task should not be cancelled
+    assert (stderr + stdout).count("Requeueing") == 1
+    assert (stderr + stdout).count(
+        "Soft shutdown requested. Will not accept additional tasks, cancel current one(s)"
+    ) == 1
+    assert (stderr + stdout).count("Sending termination signal to pool process") == 1
+    assert (stderr + stdout).count("Stopping as we are not accepting new tasks.") == 1
+    # as we give the task some time to write a checkpoint, the task actually has time to finish
+    assert (stderr + stdout).count("task a finished") == 1
+    assert (stderr + stdout).count("task b finished") == 0
+    assert (stderr + stdout).count("Stopping workforce monitor") == 1
+    # should be done in less than the task's sleep time
+    assert (end - start).total_seconds() < 11
+
+    await asyncio.sleep(2)  # give azurite some time
+
+    n = 0
+    # task-b should still be queued, we verify this here
+    async with QueueClient.from_connection_string(CONNSTR, queue_name) as queue:
+        async for _ in queue.receive_messages(timeout=1):
+            n += 1
+    assert n == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_queue_finishes_successfully(mocker, queue_name) -> None:
+    """
+    Check that workers exits successfully if the queue is empty. This also implicitly tests that
+    the tasks like the worforce-monitor exit.
+    """
+
+    mocker.patch.dict(
+        os.environ,
+        {"JOBQ_PREEMPTION_TIMEOUT": "2"},
+    )
+
+    worker_cmd = (
+        shutil.which("ai4s-jobq") or "ai4s-jobq",
+        "-vv",
+        "--conn-str=" + CONNSTR,
+        "foo/" + queue_name,
+        "worker",
+        "--visibility-timeout=30s",
+    )
+
+    with subprocess.Popen(
+        worker_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+    ) as proc:
+        start = datetime.now()
+        stdout, stderr = proc.communicate()
+        end = datetime.now()
+
+    # make sure the worker stated and exists
+    assert (stderr + stdout).count("Worker is still running. Approximate queue size=0.") == 1
+    assert (stderr + stdout).count("Pool exited.") == 1
+    assert (stderr + stdout).count("Stopping workforce monitor") == 1
+    # should be done in less than the task's sleep time
+    assert (end - start).total_seconds() < 4
+
+    await asyncio.sleep(2)  # give azurite some time
+
+    n = 0
+    # queue should be empty
+    async with QueueClient.from_connection_string(CONNSTR, queue_name) as queue:
+        async for _ in queue.receive_messages(timeout=1):
+            n += 1
+    assert n == 0

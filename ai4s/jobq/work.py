@@ -121,12 +121,6 @@ async def run_cmd_and_log_outputs(
             executable = script_executable
             args = ["-q", "-c", cmd, "/dev/null"]
 
-        LOG.error(
-            "Using executable %s with args %s in cwd %s",
-            executable,
-            args,
-            cwd,
-        )
         process = await asyncio.create_subprocess_exec(
             executable, *args, stdout=PIPE, stderr=PIPE, cwd=cwd
         )
@@ -414,6 +408,10 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
                         break
                     try:
                         log = TASK_LOG.getChild(str(item[1]))
+                        # use the custom filter coming from CustomDimensionsFilter, so that we have eg queue names
+                        # filters do not get inherited automatically by child loggers
+                        for f in LOG.filters:
+                            log.addFilter(f)
                         log.log(item[0], item[2])
                     except Exception:
                         LOG.exception("Error in logging message queue.")

@@ -254,6 +254,8 @@ class JobQ:
         Returns:
             True if the task was executed successfully, False otherwise.
         """
+        # Export this environment variable such that inside the jobs we can know which queue we're working on.
+        os.environ["JOBQ_QUEUE_NAME"] = self.full_name
         async with self._client.receive_message(
             visibility_timeout=visibility_timeout,
             with_heartbeat=with_heartbeat,
@@ -321,15 +323,14 @@ class JobQ:
                     LOG.debug("Deleting message")
                     if task.reply_requested:
                         await envelope.reply(Response(is_success=True, body=ret))
-                    await envelope.delete()
+                    await envelope.delete(success=True)
                 except Exception as e:
                     LOG.warning("Failed to delete message: %s", e)
                 return True
             else:
                 # get our caching log handler
                 log_handler = next(
-                    (h for h in logging.getLogger().handlers if hasattr(h, "get_log_cache")),
-                    None,
+                    (h for h in logging.getLogger().handlers if hasattr(h, "get_log_cache")), None
                 )
                 log = None
                 if log_handler:
@@ -358,7 +359,7 @@ class JobQ:
                     )
                     if task.reply_requested:
                         await envelope.reply(Response(is_success=False, body=str(exc)))
-                    await envelope.delete()
+                    await envelope.delete(success=False, error=str(exc))
                     return False
 
                 LOG.info(

@@ -1,11 +1,67 @@
 CHANGELOG
 =========
 
+2.11.1 (2025-10-21)
+-------------------
+
+Fixes:
+
+* in track, tz-aware and tz-unaware datetimes were subtracted
+
+2.11.0 (2025-10-10)
+-------------------
+
+Features:
+
+* When `--time-limit` is reached, initiate a clean shutdown sequence where tasks are signaled SIGTERM
+  and can checkpoint.
+
+2.10.0 (2025-09-26)
+-------------------
+
+Features:
+
+* Storage queue backend now supports a dead letter queue
+* Apply custom dimensions filter to azure log analytics logging, which adds job/worker meta data to each log line.
+* Expose logging setup for for SDK (not CLI) users via `ai4s.jobq.setup_logging`.
+
+2.9.0 (2025-09-05)
+-------------------
+
+Features:
+
+* the workforce monitor now supports two shutdown modes: `do-not-accept-new-tasks` and `graceful-downscale`.
+  In `do-not-accept-new-tasks` mode, the monitor will wait until all workers are idle before shutting down.
+  This is useful when you want to scale down without interrupting running tasks. In case of `graceful-downscale`, the monitor will send `SIGTERM` to all running workers, and wait some time so that they can write a checkpoint before being killed.
+  To use this mode, set the environment variable `JOBQ_WORKFORCE_SHUTDOWN_MODE=graceful-downscale`.
+
+Fixes:
+
+* workforce monitor task did not cancel when the queue was empty
+
+
+2.8.0 (2025-08-26)
+-------------------
+
+Features:
+* add feature to workforce to automatically create service bus topic and subscription if parameters are provided
+* add feature to multiregion workforce to scale down by laying off queued workers
+
+
+2.7.0 (2025-07-18)
+-------------------
+
+Features:
+
+* Implemented workforce monitor to listen and handle the incoming workforce control events from the service bus.
+* Implemented support for graceful downscale events.
+
 2.6.1 (2025-07-18)
 ------------------
 
-* fix linting error
-* workforce: ramp up more slowly by introducing sleeps between bulk submissions
+Features:
+
+* fix parameter type mismatch in `timeout` parameter of `QueueClient.update_message` function
 
 2.6.0 (2025-07-16)
 ------------------
