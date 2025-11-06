@@ -23,7 +23,7 @@ def run_with_default_queue(queue_name=None, debug=False, port=8050):
     debug = debug or False
     app = Dash(
         __name__,
-        external_stylesheets=["assets/solarized.css", dbc.themes.BOOTSTRAP],
+        external_stylesheets=[dbc.themes.BOOTSTRAP],
         external_scripts=[dbc._js_dist[0]["relative_package_path"]],
     )
     app.title = "JobQ Track"

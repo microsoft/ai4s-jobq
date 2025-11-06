@@ -11,7 +11,7 @@ name = "ai4s-jobq"
 version = "2.13.1"
 requires-python = ">=3.10"
 
-descriptioin = "AI for Science Job Queue - A distributed job queue system for large scale embarassingly parallel workloads"
+description = "AI for Science Job Queue - A distributed job queue system for large scale embarassingly parallel workloads"
 
 dependencies = [
   "aiohttp",
@@ -67,6 +67,9 @@ where = ["."]  # list of folders that contain the packages (["."] by default)
 include = ["ai4s", "ai4s.*", "ai4s.jobq", "ai4s.jobq.*"]  # package names should match these glob patterns (["*"] by default)
 exclude = []  # exclude packages matching these glob patterns (empty by default)
 namespaces = true
+
+[tool.setuptools.package-data]
+"ai4s.jobq" = ["py.typed", "ai4s/jobq/track/assets/*"]
 
 [tool.mypy]
 strict_optional = true
