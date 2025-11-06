@@ -12,6 +12,7 @@ version = "2.13.1"
 requires-python = ">=3.10"
 
 description = "AI for Science Job Queue - A distributed job queue system for large scale embarassingly parallel workloads"
+readme = "README.md"
 
 dependencies = [
   "aiohttp",
