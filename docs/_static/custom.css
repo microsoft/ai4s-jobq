@@ -1,0 +1,162 @@
+/* Solarized Light Theme for Sphinx RTD Theme */
+
+:root {
+    --color-background-primary: #fdf6e3;
+    --color-background-secondary: #eee8d5;
+    --color-text-primary: #627880;
+    --color-link: #237ab3;
+    --color-link-hover: #6c71c4;
+    --color-sidebar-background: #fdf6e3;
+    --color-sidebar-background-secondary: #eee8d5;
+    --color-sidebar-link: #000202;
+    --color-sidebar-link-hover: #268bd2;
+    --color-sidebar-link-active: #cb4b16;
+    --color-code-background: #fdf6e3;
+    --color-code-text: #040000;
+}
+
+/* General body and text */
+body {
+    background-color: var(--color-background-primary);
+    color: var(--color-text-primary);
+}
+
+.highlight .ow {
+    color: #008000;
+    background-color: #fff8e5.
+}
+
+.rst-content .headerlink {
+    color: #000000;
+}
+
+.rst-content code.literal {
+    color: var(--color-code-text);
+    background-color: var(--color-code-background);
+}
+
+.rst-content a.external {
+    color: var(--color-link);
+}
+
+.wy-nav-content-wrap {
+    background: var(--color-background-primary);
+}
+
+/* Sidebar (TOC) */
+.wy-side-nav-search {
+    background-color: var(--color-sidebar-background);
+    color: var(--color-sidebar-link);
+}
+
+.wy-menu-vertical li.toctree-l2 {
+    background-color: var(--color-sidebar-background-secondary);
+}
+
+.wy-menu-vertical li.toctree-l2.current>a {
+    background-color: var(--color-sidebar-background-secondary);
+}
+
+.wy-menu-vertical ul ul {
+    background-color: var(--color-sidebar-background-secondary);
+}
+
+.wy-menu-vertical a {
+    color: var(--color-sidebar-link);
+}
+
+.wy-menu-vertical p.caption {
+    color: var(--color-text-primary);
+}
+
+.wy-menu-vertical a:hover {
+    color: var(--color-sidebar-link-hover);
+    background-color: var(--color-background-secondary);
+}
+
+.wy-menu-vertical a.current {
+    color: var(--color-sidebar-link-active);
+    background-color: var(--color-background-secondary);
+    font-weight: bold;
+}
+
+/* Nested TOC levels */
+.wy-menu-vertical ul ul {
+    margin-left: 10px;
+    border-left: 2px solid #93a1a1;
+    padding-left: 10px;
+}
+
+/* Code blocks */
+.rst-content code, .rst-content pre {
+    background-color: var(--color-code-background);
+    color: var(--color-code-text);
+}
+
+/* Admonitions */
+.admonition {
+    background-color: #eee8d5;
+    border-left: 4px solid #b58900;
+}
+
+.admonition-title {
+    color: #cb4b16;
+    font-weight: bold;
+}
+
+.icon-home {
+    color: var(--text-primary);
+}
+
+.wy-nav-side {
+    background-color: var(--color-sidebar-background);
+    background: var(--color-sidebar-background);
+}
+
+::marker {
+    color: #268bd2;
+}
+
+footer, .footer, .rst-footer {
+    color: var(--color-text-primary);
+}
+
+
+footer a,
+.footer a,
+.rst-footer a,
+.rst-content a,
+.wy-footer a,
+.wy-nav-footer a {
+    color: var(--color-link);
+}
+
+
+
+.custom-search-form {
+    display: flex;
+    align-items: center;
+    gap: 5px; /* space between input and button */
+}
+
+.custom-search-form input[type="text"] {
+    flex: 1;
+    padding: 5px;
+}
+
+.custom-search-form button {
+    padding: 5px 12px;
+    background-color: var(--color-background-secondary);
+    color: #566c74;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 90%;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+
+}
+
+.custom-search-form button:hover {
+    background-color: #1c5980;
+}
+

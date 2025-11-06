@@ -1,0 +1,17 @@
+{
+  "defaults": {
+    "timeout": 30000,
+    "chromeLaunchConfig": {
+      "args": ["--no-sandbox", "--disable-setuid-sandbox"]
+    },
+    "standard": "WCAG2AA",
+    "headless": true,
+    "screenCapture": false
+  },
+  "sitemap": "http://localhost:8080/sitemap.xml",
+  "sitemapOptions": {
+    "filter": ".*",
+    "maxUrls": 50
+  }
+
+}

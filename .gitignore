@@ -1,0 +1,6 @@
+build
+__pycache__/
+.tox/
+node_modules/
+ai4s_jobq.egg-info/
+docs-dist

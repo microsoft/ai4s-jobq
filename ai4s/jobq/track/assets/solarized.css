@@ -1,0 +1,185 @@
+/* Solarized Light Color Palette */
+:root {
+  --base03: #002b36;
+  --base02: #073642;
+  --base01: #586e75;
+  --base00: #657b83;
+  --base0:  #839496;
+  --base1:  #93a1a1;
+  --base2:  #eee8d5;
+  --base3:  #fdf6e3;
+  --yellow: #b58900;
+  --orange: #cb4b16;
+  --red:    #dc322f;
+  --magenta:#d33682;
+  --violet: #6c71c4;
+  --blue:   #268bd2;
+  --cyan:   #2aa198;
+  --green:  #859900;
+}
+
+/* General body styling */
+body {
+  background-color: var(--base3);
+  color: var(--base00);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  margin: 1em 1.3em;
+  padding: 0;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--base01);
+}
+
+/* Links */
+a {
+  color: var(--blue);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* Dash Table */
+.dash-table-container .dash-spreadsheet {
+  background-color: var(--base3);
+  color: var(--base00);
+  border: 1px solid var(--base1);
+}
+.dash-table-container .dash-spreadsheet td {
+  border-color: var(--base2);
+}
+.dash-table-container .dash-spreadsheet th {
+  background-color: var(--base2);
+  color: var(--base01);
+}
+
+/* Plotly Graphs */
+.js-plotly-plot .plot-container {
+  background-color: var(--base3);
+}
+.js-plotly-plot .main-svg {
+  color: var(--base00);
+}
+
+/* Inputs and Buttons */
+input, select, textarea, button {
+  background-color: var(--base2);
+  color: var(--base00);
+  border: 1px solid var(--base1);
+  padding: 6px;
+  margin: 4px 0;
+}
+button {
+  background-color: var(--blue);
+  color: var(--base3);
+  cursor: pointer;
+}
+button:hover {
+  background-color: var(--cyan);
+}
+
+/* Misc */
+hr {
+  border-color: var(--base2);
+}
+
+
+/* Dropdown container */
+.Select-control, .dash-dropdown, .VirtualizedSelect {
+  background-color: var(--base2);
+  color: var(--base00);
+  border: 1px solid var(--base1);
+  border-radius: 4px;
+}
+
+/* Dropdown menu */
+.Select-menu-outer {
+  background-color: var(--base3);
+  border: 1px solid var(--base1);
+  color: var(--base00);
+}
+
+/* Dropdown options */
+.Select-option {
+  background-color: var(--base3);
+  color: var(--base00);
+}
+.Select-option:hover {
+  background-color: var(--base2);
+}
+
+/* Selected item */
+.Select-value {
+  color: var(--base00);
+  background-color: var(--base2);
+}
+
+/* Date Picker input */
+.DateInput_input {
+  background-color: var(--base2);
+  color: var(--base00);
+  border: 1px solid var(--base1);
+  height: 30px; /* Adjusted height to match other inputs */
+  font-size: 14px; /* Adjusted font size to match other inputs */
+}
+
+/* Date Picker calendar */
+.DayPicker {
+  background-color: var(--base3) !important; /* Ensure Solarized background is applied */
+  color: var(--base00);
+  border: 1px solid var(--base1);
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.DayPicker_weekHeader {
+  color: var(--base01);
+  font-weight: bold;
+}
+.DayPickerNavigation_button {
+  background-color: var(--base2);
+  color: var(--base00);
+  border: 1px solid var(--base1);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.DayPickerNavigation_button:hover {
+  background-color: var(--base1);
+}
+.CalendarDay {
+  background-color: var(--base3);
+  color: var(--base00);
+  border: 1px solid var(--base2);
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.CalendarDay:hover {
+  background-color: var(--base2);
+}
+.CalendarDay__selected {
+  background-color: var(--blue);
+  color: var(--base3);
+}
+.CalendarDay__today {
+  border: 1px solid var(--orange);
+}
+
+/* Calendar Month view */
+.CalendarMonth {
+  background-color: var(--base3) !important; /* Ensure Solarized background for the month view */
+  color: var(--base00);
+}
+.CalendarMonthGrid {
+  background-color: var(--base3) !important; /* Ensure Solarized background for the month grid */
+}
+
+.SingleDatePickerInput__withBorder {
+  border: 0;
+  background-color: var(--base3);
+}
+
+.DateInput {
+  background-color: var(--base3);
+}

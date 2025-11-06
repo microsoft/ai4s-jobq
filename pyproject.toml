@@ -1,0 +1,114 @@
+[build-system]
+requires = [ "setuptools >= 35.0.2", "wheel >= 0.29.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.distutils.bdist_wheel]
+universal = true
+
+[project]
+name = "ai4s-jobq"
+
+version = "2.13.1"
+
+dependencies = [
+  "aiohttp",
+  "rich",
+  "asyncclick < 8.2.2",  # pinned because 8.2.2 suddenly requires Python 3.11
+  "azure-identity",
+  "azure-monitor-opentelemetry",
+  "azure-storage-blob",
+  "azure-storage-queue",
+  "psutil",
+  "types-python-dateutil",
+  "joblib",   # implicit dependency of utilities
+  "anyio",   # implicit dependency of asyncclick
+  "pyyaml",
+  "cachetools",
+  "azure-servicebus",
+  "appdirs",
+]
+
+[project.optional-dependencies]
+dev = [
+    "tox", "tox-conda", "pytest", "pytest-asyncio", "pytest-mock", "wait-for-it", "types-psutil", "types-cachetools", "pandas-stubs", "plotly-stubs", 
+    "sphinx",
+    "sphinx-autodoc-typehints",
+    "sphinx-rtd-theme",
+    "toml",
+    "types-toml",
+    "myst-parser",
+    "sphinx-sitemap",
+    "sphinx-prompt",
+    "sphinx-copybutton",
+    "sphinx_markdown_builder",
+]
+workforce = [
+    "azure-ai-ml", "pydantic",
+]
+servicebus = [
+  "azure-servicebus"
+]
+track = [
+  "dash_bootstrap_components",
+  "dash",
+  "pandas",
+  "azure-monitor-query",
+  "azure-mgmt-resourcegraph",
+  "azure-mgmt-loganalytics",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]  # list of folders that contain the packages (["."] by default)
+include = ["ai4s", "ai4s.*", "ai4s.jobq", "ai4s.jobq.*"]  # package names should match these glob patterns (["*"] by default)
+exclude = []  # exclude packages matching these glob patterns (empty by default)
+namespaces = true
+
+[tool.mypy]
+strict_optional = true
+
+[[tool.mypy.overrides]]
+module = [
+  "amlt.*",
+  "utilities.*",
+  "dash.*",
+  "opencensus.*",
+  "ai4s.jobq.ext.amlt_utils",
+  "azure.servicebus.*",
+  "azure.data.tables.*",
+  "azure.monitor.query.*",
+  "azure.mgmt.loganalytics.*",
+  "azure.mgmt.resourcegraph.*",
+  "opencensus.ext.azure.*",
+  "appdirs",
+  "dash_bootstrap_components.*",
+]
+disallow_untyped_calls = false
+warn_unused_ignores = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "--asyncio-mode=auto"
+
+[project.scripts]
+ai4s-jobq = "ai4s.jobq.cli:main"
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+# E: pycodestyle, F: pyflakes, I: isort
+lint.extend-select = ["I"]
+
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_third_party = [
+    "amlt",
+    "wandb",
+]
+skip = [
+  "ai4s/jobq/__init__.py"
+]

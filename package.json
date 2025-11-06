@@ -1,0 +1,10 @@
+{
+  "name": "ai4s-jobq",
+  "description": "This package has no runtime dependencies on javascript libraries, but node packages are used for testing and development purposes.",
+  "devDependencies": {
+    "azurite": "^3.34.0",
+    "pa11y": "^9.0.0",
+    "pa11y-ci": "^4.0.1",
+    "puppeteer": "^24.15.0"
+  }
+}
