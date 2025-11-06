@@ -9,6 +9,9 @@ universal = true
 name = "ai4s-jobq"
 
 version = "2.13.1"
+requires-python = ">=3.10"
+
+descriptioin = "AI for Science Job Queue - A distributed job queue system for large scale embarassingly parallel workloads"
 
 dependencies = [
   "aiohttp",
@@ -27,6 +30,8 @@ dependencies = [
   "azure-servicebus",
   "appdirs",
 ]
+
+urls.repository = "https://github.com/microsoft/ai4s-jobq"
 
 [project.optional-dependencies]
 dev = [
