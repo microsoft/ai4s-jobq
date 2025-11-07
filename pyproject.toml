@@ -35,7 +35,6 @@ dependencies = [
 urls.repository = "https://github.com/microsoft/ai4s-jobq"
 
 [tool.setuptools_scm]
-version_scheme = "semver"
 local_scheme = "no-local-version"
 
 [project.optional-dependencies]
