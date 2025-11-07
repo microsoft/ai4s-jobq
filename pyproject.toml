@@ -1,5 +1,5 @@
 [build-system]
-requires = [ "setuptools >= 35.0.2", "wheel >= 0.29.0"]
+requires = [ "setuptools >= 35.0.2", "wheel >= 0.29.0", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [tool.distutils.bdist_wheel]
@@ -8,7 +8,7 @@ universal = true
 [project]
 name = "ai4s-jobq"
 
-version = "2.13.1"
+dynamic = ["version"]
 requires-python = ">=3.10"
 
 description = "AI for Science Job Queue - A distributed job queue system for large scale embarassingly parallel workloads"
@@ -33,6 +33,10 @@ dependencies = [
 ]
 
 urls.repository = "https://github.com/microsoft/ai4s-jobq"
+
+[tool.setuptools_scm]
+version_scheme = "semver"
+local_scheme = "no-local-version"
 
 [project.optional-dependencies]
 dev = [
