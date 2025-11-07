@@ -1,6 +1,6 @@
 # Graceful shutdown
 
-Ideally, you have already walked through the [workforce documentation](workforce.md) and have a workforce running. If not, we recommend to do that first.
+Ideally, you have already walked through the {doc}`workforce documentation <30-workforce>` and have a workforce running. If not, we recommend to do that first.
 
 
 ## Use Case and Implementation Details
@@ -60,8 +60,8 @@ Topic name configuration can be used to be more specific on which nodes to targe
 
 Here is an example code snippet to send a graceful-downscale message.
 
-```py
-from azure.servicebus import ServiceBusClient, ServiceBusMessage 
+```python
+from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from azure.identity import AzureCliCredential
 import json
 

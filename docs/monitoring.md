@@ -20,11 +20,11 @@ Steps:
 
 You can query the logs in App Insights or the connected Log Analytics workspace directly. Try a query like:
 
-    ```kusto
+```kusto
     traces
     | where message startswith "Task starting"
     | limit 100
-    ```
+```
 
    In Log Analytics (the service that App Insights uses under the hood), the names of the collections are slightly different, for example `AppTraces` instead of `Traces`.
 
