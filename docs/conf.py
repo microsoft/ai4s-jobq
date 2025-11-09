@@ -6,18 +6,9 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 import os
-from pathlib import Path
 from typing import List
 
-import toml
-
-# Load version from pyproject.toml
-pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
-if pyproject_path.exists():
-    pyproject_data = toml.load(pyproject_path)
-    version = pyproject_data.get("project", {}).get("version", "unknown")
-else:
-    version = "unknown"
+from ai4s.jobq import __version__ as version
 
 # Use in Sphinx
 release = version

@@ -1,5 +1,5 @@
-AI for Science JobQ (|version|)
-===============================
+AI for Science JobQ
+===================
 
 The main documentation is hosted at `microsoft.github.io/ai4s-jobq <https://microsoft.github.io/ai4s-jobq>`_. You can use `aka.ms/jobq <https://aka.ms/jobq>`_ as a short link to this page.
 
@@ -39,7 +39,7 @@ Key Features
 
   .. prompt:: bash $ auto
 
-     $ export QUEUE = my_storage_account/my_unique_queue_name
+     $ QUEUE=my_storage_account/my_unique_queue_name
      $ ai4s-jobq $QUEUE push -c "echo hello"
      $ ai4s-jobq $QUEUE worker
 
