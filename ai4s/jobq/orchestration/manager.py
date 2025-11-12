@@ -159,27 +159,31 @@ async def batch_enqueue(
         @_async_catch_and_print_exc
         async def enqueue_worker() -> None:
             assert isinstance(work_spec, WorkSpecification)
-            while True:
-                work = await enqueue_jobs.get()
-                if work is None:
-                    break
-                try:
-                    job = await work_spec.enqueue_task(work, force=force)
-                    stats.n_considered += 1
-                    if job is not None:
-                        stats.n_queued += 1
-                        if not dry_run:
-                            fut = await queue.push(
-                                job, num_retries=num_retries, reply_requested=reply_requested
-                            )
-                            futures.append(fut)
-                    if show_progress:
-                        progress.update(task_id, advance=1)
-                    enqueue_jobs.task_done()
-                except Exception as e:
-                    LOG.exception("Caught exception during enqueue: %s", e)
-                    enqueue_jobs.task_done()  # ensure worker can exit
-                    break
+            async with queue.get_worker() as worker:
+                while True:
+                    work = await enqueue_jobs.get()
+                    if work is None:
+                        break
+                    try:
+                        job = await work_spec.enqueue_task(work, force=force)
+                        stats.n_considered += 1
+                        if job is not None:
+                            stats.n_queued += 1
+                            if not dry_run:
+                                fut = await queue.push(
+                                    job,
+                                    num_retries=num_retries,
+                                    reply_requested=reply_requested,
+                                    worker=worker,
+                                )
+                                futures.append(fut)
+                        if show_progress:
+                            progress.update(task_id, advance=1)
+                        enqueue_jobs.task_done()
+                    except Exception as e:
+                        LOG.exception("Caught exception during enqueue: %s", e)
+                        enqueue_jobs.task_done()  # ensure worker can exit
+                        break
 
         enum_workers: list[asyncio.Task[None]] = [
             asyncio.create_task(enum_worker(), name=f"enum-worker-{idx}")
@@ -556,6 +560,8 @@ async def launch_workers(
                         },
                     )
 
+                _worker = await worker_stack.enter_async_context(queue.get_worker())
+
                 while True:
                     if datetime.now() > soft_limit_time:
                         LOG.error(
@@ -572,6 +578,7 @@ async def launch_workers(
                             visibility_timeout=visibility_timeout,
                             with_heartbeat=with_heartbeat,
                             worker_id=worker_id,
+                            worker=_worker,
                         )
                         # convert coro to a task
                         worker_task = asyncio.create_task(worker_coro, name=f"worker-{idx}")

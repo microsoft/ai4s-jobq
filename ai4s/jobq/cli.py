@@ -229,6 +229,18 @@ class QueueConfig:
                             exist_ok=exist_ok,
                         )
                     )
+                elif isinstance(self.backend_spec, ServiceBusSpec):
+                    credential = self.credential
+                    if not self.credential:
+                        credential = await stack.enter_async_context(get_token_credential())  # type: ignore
+                    queue = await stack.enter_async_context(
+                        JobQ.from_service_bus(
+                            self.backend_spec.name,
+                            fqns=f"{self.backend_spec.namespace}.servicebus.windows.net",
+                            credential=credential,
+                            exist_ok=exist_ok,
+                        )
+                    )
                 else:
                     raise ValueError(f"Unknown backend spec: {self.backend_spec}")
             yield queue
@@ -499,12 +511,15 @@ async def pull(
     # use worker for more fine-grained control.
     async with ctx.obj.get(exist_ok=True) as queue:
         async with proc_cls() as proc:
-            try:
-                await queue.pull_and_execute(proc, visibility_timeout=visibility_timeout)
-            except WorkerCanceled:
-                LOG.info("Worker canceled.")
-            except EmptyQueue:
-                LOG.error("Queue is empty.")
+            async with queue.get_worker() as worker:
+                try:
+                    await queue.pull_and_execute(
+                        proc, visibility_timeout=visibility_timeout, worker=worker
+                    )
+                except WorkerCanceled:
+                    LOG.info("Worker canceled.")
+                except EmptyQueue:
+                    LOG.error("Queue is empty.")
 
 
 @main.command("worker")
