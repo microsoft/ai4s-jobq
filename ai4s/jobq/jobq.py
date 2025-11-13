@@ -258,7 +258,7 @@ class JobQ:
             num_retries=num_retries,
             reply_requested=reply_requested,
         )
-        worker = worker or self._client
+        worker = worker if worker is not None else self._client
         return JobQFuture(self, await worker.push(task))
 
     @property
@@ -299,7 +299,7 @@ class JobQ:
         """
         # Export this environment variable such that inside the jobs we can know which queue we're working on.
         os.environ["JOBQ_QUEUE_NAME"] = self.full_name
-        worker = worker or self._client
+        worker = worker if worker is not None else self._client
         async with worker.receive_message(
             visibility_timeout=visibility_timeout,
             with_heartbeat=with_heartbeat,
