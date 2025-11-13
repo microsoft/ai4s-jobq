@@ -5,24 +5,34 @@ from ai4s.jobq.work import Processor, SequentialProcessor, WorkSpecification
 
 
 async def test_generate(async_queue, mocker):
-    push = mocker.patch.object(async_queue, "push")
+    async with async_queue.get_worker() as worker:
 
-    class Gen(WorkSpecification):
-        async def list_tasks(self, seed, force):
-            yield dict(value=1)
-            yield dict(value=2)
+        class MockWorkerCM:
+            async def __aenter__(self):
+                return worker
 
-    # call simple API for enqueueing
-    await batch_enqueue(async_queue, Gen(), num_list_task_workers=1, num_enqueue_workers=1)
+            async def __aexit__(self, exc_type, exc, tb):
+                pass
 
-    # check that everything was pushed
-    assert push.await_count == 2
-    push.assert_has_awaits(
-        [
-            call(dict(value=1), num_retries=1, reply_requested=False),
-            call(dict(value=2), num_retries=1, reply_requested=False),
-        ]
-    )
+        mocker.patch.object(async_queue, "get_worker", return_value=MockWorkerCM())
+        push = mocker.patch.object(async_queue, "push")
+
+        class Gen(WorkSpecification):
+            async def list_tasks(self, seed, force):
+                yield dict(value=1)
+                yield dict(value=2)
+
+        # call simple API for enqueueing
+        await batch_enqueue(async_queue, Gen(), num_list_task_workers=1, num_enqueue_workers=1)
+
+        # check that everything was pushed
+        assert push.await_count == 2
+        push.assert_has_awaits(
+            [
+                call(dict(value=1), num_retries=1, reply_requested=False, worker=worker),
+                call(dict(value=2), num_retries=1, reply_requested=False, worker=worker),
+            ]
+        )
 
 
 async def test_process(async_queue, mocker):
