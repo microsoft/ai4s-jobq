@@ -159,7 +159,7 @@ async def batch_enqueue(
         @_async_catch_and_print_exc
         async def enqueue_worker() -> None:
             assert isinstance(work_spec, WorkSpecification)
-            async with queue.get_worker() as worker:
+            async with queue.get_worker(no_receiver=True) as worker:
                 while True:
                     work = await enqueue_jobs.get()
                     if work is None:
@@ -210,6 +210,7 @@ async def batch_enqueue(
             try:
                 await fut
             except asyncio.CancelledError:
+                print("Worker cancelled!!!!!!!!!!")
                 pass
 
     return futures

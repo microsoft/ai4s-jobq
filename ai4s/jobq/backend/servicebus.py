@@ -277,9 +277,14 @@ class ServiceBusJobqBackend(JobQBackend):
         no_receiver: bool = False,
         no_sender: bool = False,
     ) -> ty.AsyncGenerator["ServiceBusJobqBackendWorker", None]:  # type: ignore
-        yield ServiceBusJobqBackendWorker(
+        interface = ServiceBusJobqBackendWorker(
             self, receiver_kwargs, sender_kwargs, no_receiver, no_sender
         )
+        await interface.__aenter__()
+        try:
+            yield interface
+        finally:
+            await interface.__aexit__(None, None, None)
 
 
 class ServiceBusJobqBackendWorker:
