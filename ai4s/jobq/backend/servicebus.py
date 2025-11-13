@@ -1,3 +1,5 @@
+# Copyright (c) Microsoft Corporation.
+# License under the MIT License.
 import base64
 import hashlib
 import hmac
@@ -80,7 +82,7 @@ class ServiceBusEnvelope(Envelope):
         message: ServiceBusReceivedMessage,
         task: Task,
         receiver: ServiceBusReceiver,
-        sender: ServiceBusSender,
+        sender: ServiceBusSender | None,
     ):
         self.message = message
         self.receiver = receiver
@@ -119,6 +121,7 @@ class ServiceBusEnvelope(Envelope):
         msg = ServiceBusMessage(
             body=task.serialize(), reply_to_session_id=self.message.reply_to_session_id
         )
+        assert self.sender is not None, "Sender is not initialized."
         await self.sender.send_messages(msg)
 
 
@@ -202,17 +205,20 @@ class ServiceBusJobqBackend(JobQBackend):
         """
         assert self.client is not None
 
-        async with self.get_worker(
-            dict(receive_mode=ServiceBusReceiveMode.RECEIVE_AND_DELETE)
-        ) as worker:
+        n = 0
+        async with self.client.get_queue_receiver(
+            max_message_count=32,
+            queue_name=self.queue_name,
+            receive_mode=ServiceBusReceiveMode.RECEIVE_AND_DELETE,
+            prefetch_count=0,
+            max_wait_time=2,
+        ) as receiver:
             while True:
-                try:
-                    async with worker.receive_message(
-                        timedelta(minutes=1), max_wait_time=1, use_locking=False
-                    ):
-                        pass
-                except EmptyQueue:
+                msgs = await receiver.receive_messages(max_message_count=32, max_wait_time=1)
+                n += len(msgs)
+                if not msgs:
                     break
+        LOG.info(f"Cleared {n} messages from queue {self.queue_name}.")
 
     @asynccontextmanager
     async def get_admin_client(self) -> ty.AsyncGenerator[ServiceBusAdministrationClient, None]:
@@ -243,9 +249,9 @@ class ServiceBusJobqBackend(JobQBackend):
     async def peek(self, n: int = 1, as_json=False) -> ty.List[ServiceBusReceivedMessage]:
         assert self.client is not None
         messages: ty.List[ServiceBusReceivedMessage] = []
-        async with self.get_worker() as worker:
+        async with self.client.get_queue_receiver(self.queue_name) as receiver:
             while True:
-                page = await worker.receiver.peek_messages(
+                page = await receiver.peek_messages(
                     max_message_count=min(n, 32) if n > 0 else 32,
                     sequence_number=messages[-1].sequence_number + 1
                     if messages and messages[-1].sequence_number is not None
@@ -265,9 +271,15 @@ class ServiceBusJobqBackend(JobQBackend):
 
     @asynccontextmanager
     async def get_worker(
-        self, receiver_kwargs=None, sender_kwargs=None
+        self,
+        receiver_kwargs=None,
+        sender_kwargs=None,
+        no_receiver: bool = False,
+        no_sender: bool = False,
     ) -> ty.AsyncGenerator["ServiceBusJobqBackendWorker", None]:  # type: ignore
-        yield ServiceBusJobqBackendWorker(self, receiver_kwargs, sender_kwargs)
+        yield ServiceBusJobqBackendWorker(
+            self, receiver_kwargs, sender_kwargs, no_receiver, no_sender
+        )
 
 
 class ServiceBusJobqBackendWorker:
@@ -276,6 +288,8 @@ class ServiceBusJobqBackendWorker:
         backend: ServiceBusJobqBackend,
         receiver_kwargs: dict | None,
         sender_kwargs: dict | None,
+        no_receiver: bool = False,
+        no_sender: bool = False,
     ):
         self.backend = backend
         assert backend.client is not None, "Backend client is not initialized."
@@ -283,21 +297,32 @@ class ServiceBusJobqBackendWorker:
         sender_kwargs = sender_kwargs or dict()
         receiver_kwargs = receiver_kwargs or dict()
 
-        max_wait_time = int(os.environ.get("JOBQ_MAX_WAIT_TIME", 60))
-        self.receiver = backend.client.get_queue_receiver(
-            backend.queue_name, max_wait_time=max_wait_time, **receiver_kwargs
-        )
-        self.sender = backend.client.get_queue_sender(backend.queue_name, **sender_kwargs)
+        max_wait_time = int(os.environ.get("JOBQ_MAX_WAIT_TIME", 5))
+        receiver_kwargs.setdefault("receive_mode", ServiceBusReceiveMode.PEEK_LOCK)
+        receiver_kwargs.setdefault("max_wait_time", max_wait_time)
+        receiver_kwargs.setdefault("prefetch_count", 0)
+        if no_receiver:
+            self.receiver = None
+        else:
+            self.receiver = backend.client.get_queue_receiver(backend.queue_name, **receiver_kwargs)
+        if no_sender:
+            self.sender = None
+        else:
+            self.sender = backend.client.get_queue_sender(backend.queue_name, **sender_kwargs)
         self.lock_renewer = backend.lock_renewer
 
     async def __aenter__(self) -> "ServiceBusJobqBackendWorker":
-        await self.receiver.__aenter__()
-        await self.sender.__aenter__()
+        if self.receiver is not None:
+            await self.receiver.__aenter__()
+        if self.sender is not None:
+            await self.sender.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self.receiver.__aexit__(exc_type, exc, tb)
-        await self.sender.__aexit__(exc_type, exc, tb)
+        if self.receiver is not None:
+            await self.receiver.__aexit__(exc_type, exc, tb)
+        if self.sender is not None:
+            await self.sender.__aexit__(exc_type, exc, tb)
 
     @asynccontextmanager
     async def receive_message(
@@ -307,6 +332,7 @@ class ServiceBusJobqBackendWorker:
         use_locking=True,
         **kwargs,
     ) -> ty.AsyncGenerator[ServiceBusEnvelope, None]:
+        assert self.receiver is not None, "Receiver is not initialized."
         messages = await self.receiver.receive_messages(max_message_count=1, **kwargs)
         if not messages:
             raise EmptyQueue(f"The queue {self.backend.name} has no more tasks.")
@@ -326,6 +352,7 @@ class ServiceBusJobqBackendWorker:
 
     async def push(self, task: Task) -> str:
         msg = ServiceBusMessage(body=task.serialize())
+        assert self.sender is not None, "Sender is not initialized."
         await self.sender.send_messages(msg)
         assert msg.message_id is not None
         return msg.message_id

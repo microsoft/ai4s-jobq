@@ -265,10 +265,8 @@ class JobQ:
     def full_name(self) -> str:
         return self._client.name
 
-    @asynccontextmanager
-    async def get_worker(self):
-        async with self._client.get_worker() as worker:
-            yield worker
+    def get_worker(self, **kwargs):
+        return self._client.get_worker(**kwargs)
 
     async def pull_and_execute(
         self,
