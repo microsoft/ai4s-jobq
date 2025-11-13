@@ -36,7 +36,7 @@ async def test_servicebus(sb_namespace, sb_queue):
 @pytest.mark.live
 @pytest.mark.asyncio
 async def test_servicebus_stress(sb_namespace, sb_queue):
-    n_seeds, n_tasks_per_seed = 10, 20
+    n_seeds, n_tasks_per_seed = 10, 200
 
     expected = set()
 

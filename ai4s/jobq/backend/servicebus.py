@@ -303,9 +303,10 @@ class ServiceBusJobqBackendWorker:
         receiver_kwargs = receiver_kwargs or dict()
 
         max_wait_time = int(os.environ.get("JOBQ_MAX_WAIT_TIME", 5))
+        prefetch_count = int(os.environ.get("JOBQ_PREFETCH_COUNT", 0))
         receiver_kwargs.setdefault("receive_mode", ServiceBusReceiveMode.PEEK_LOCK)
         receiver_kwargs.setdefault("max_wait_time", max_wait_time)
-        receiver_kwargs.setdefault("prefetch_count", 0)
+        receiver_kwargs.setdefault("prefetch_count", prefetch_count)
         if no_receiver:
             self.receiver = None
         else:
