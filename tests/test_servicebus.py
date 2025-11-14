@@ -76,3 +76,48 @@ async def test_servicebus_stress(sb_namespace, sb_queue):
 
     assert len(work.done) == n_seeds * n_tasks_per_seed
     assert set(work.done.keys()) == expected
+
+
+@pytest.mark.live
+@pytest.mark.asyncio
+async def test_servicebus_retry(sb_namespace, sb_queue):
+    n_seeds, n_tasks_per_seed = 10, 20
+
+    expected = set()
+
+    class Work(WorkSpecification, Processor):
+        def __init__(self):
+            self.done = Counter()
+            super().__init__()
+
+        async def task_seeds(self):
+            for item in [f"seed {_}" for _ in range(n_seeds)]:
+                yield item
+
+        async def list_tasks(self, seed: str, force: bool = False):
+            for i in range(n_tasks_per_seed):
+                cmd = f"{seed} - task {i}"
+                yield cmd
+                expected.add(cmd)
+
+        async def __call__(self, cmd):
+            self.done[cmd] += 1
+            if cmd in self.done and self.done[cmd] < 2:
+                raise Exception("Simulated failure")
+            return f"processed {cmd}"
+
+    async with Work() as work:
+        async with get_token_credential() as credential:
+            async with JobQ.from_service_bus(
+                sb_queue, fqns=f"{sb_namespace}.servicebus.windows.net", credential=credential
+            ) as jobq:
+                await jobq.clear()
+
+                await batch_enqueue(jobq, work, num_retries=1)
+                await launch_workers(jobq, work, num_workers=20, max_consecutive_failures=10000)
+
+    for v in work.done.values():
+        assert v == 2
+
+    assert len(work.done) == n_seeds * n_tasks_per_seed
+    assert set(work.done.keys()) == expected

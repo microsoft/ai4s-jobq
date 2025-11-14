@@ -349,13 +349,16 @@ class ServiceBusJobqBackendWorker:
         assert len(content) == 1
         message = messages[0]
         # message.delivery_count  # TODO gets incremented when lock expires or abandon is called. Not ideal for us.
-        task = Task.deserialize(content[0])
-        envelope = ServiceBusEnvelope(message, task, self.receiver, self.sender)
         try:
-            yield envelope
-        except BaseException:
-            if not envelope.done:
-                await envelope.abandon()  # return to the queue
+            task = Task.deserialize(content[0])
+        except Exception:
+            LOG.warning(
+                "Deleting message %s because task deserialization failed.", message.message_id
+            )
+            await self.receiver.complete_message(message)
+            raise
+        else:
+            yield ServiceBusEnvelope(message, task, self.receiver, self.sender)
 
     async def push(self, task: Task) -> str:
         msg = ServiceBusMessage(body=task.serialize())
