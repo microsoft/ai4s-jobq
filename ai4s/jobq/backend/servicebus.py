@@ -270,12 +270,13 @@ class ServiceBusJobqBackend(JobQBackend):
             return messages
 
     @asynccontextmanager
-    async def get_worker(
+    async def get_worker_interface(
         self,
         receiver_kwargs=None,
         sender_kwargs=None,
         no_receiver: bool = False,
         no_sender: bool = False,
+        **kwargs,
     ) -> ty.AsyncGenerator["ServiceBusJobqBackendWorker", None]:  # type: ignore
         interface = ServiceBusJobqBackendWorker(
             self, receiver_kwargs, sender_kwargs, no_receiver, no_sender

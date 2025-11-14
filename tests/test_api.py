@@ -5,16 +5,16 @@ from ai4s.jobq.work import Processor, SequentialProcessor, WorkSpecification
 
 
 async def test_generate(async_queue, mocker):
-    async with async_queue.get_worker() as worker:
+    async with async_queue.get_worker_interface() as worker_interface:
 
         class MockWorkerCM:
             async def __aenter__(self):
-                return worker
+                return worker_interface
 
             async def __aexit__(self, exc_type, exc, tb):
                 pass
 
-        mocker.patch.object(async_queue, "get_worker", return_value=MockWorkerCM())
+        mocker.patch.object(async_queue, "get_worker_interface", return_value=MockWorkerCM())
         push = mocker.patch.object(async_queue, "push")
 
         class Gen(WorkSpecification):
@@ -29,8 +29,18 @@ async def test_generate(async_queue, mocker):
         assert push.await_count == 2
         push.assert_has_awaits(
             [
-                call(dict(value=1), num_retries=1, reply_requested=False, worker=worker),
-                call(dict(value=2), num_retries=1, reply_requested=False, worker=worker),
+                call(
+                    dict(value=1),
+                    num_retries=1,
+                    reply_requested=False,
+                    worker_interface=worker_interface,
+                ),
+                call(
+                    dict(value=2),
+                    num_retries=1,
+                    reply_requested=False,
+                    worker_interface=worker_interface,
+                ),
             ]
         )
 

@@ -159,7 +159,7 @@ async def batch_enqueue(
         @_async_catch_and_print_exc
         async def enqueue_worker() -> None:
             assert isinstance(work_spec, WorkSpecification)
-            async with queue.get_worker(no_receiver=True) as worker:
+            async with queue.get_worker_interface(no_receiver=True) as worker_interface:
                 while True:
                     work = await enqueue_jobs.get()
                     if work is None:
@@ -174,7 +174,7 @@ async def batch_enqueue(
                                     job,
                                     num_retries=num_retries,
                                     reply_requested=reply_requested,
-                                    worker=worker,
+                                    worker_interface=worker_interface,
                                 )
                                 futures.append(fut)
                         if show_progress:
@@ -210,7 +210,6 @@ async def batch_enqueue(
             try:
                 await fut
             except asyncio.CancelledError:
-                print("Worker cancelled!!!!!!!!!!")
                 pass
 
     return futures
@@ -561,7 +560,9 @@ async def launch_workers(
                         },
                     )
 
-                _worker = await worker_stack.enter_async_context(queue.get_worker())
+                worker_interface = await worker_stack.enter_async_context(
+                    queue.get_worker_interface()
+                )
 
                 while True:
                     if datetime.now() > soft_limit_time:
@@ -579,7 +580,7 @@ async def launch_workers(
                             visibility_timeout=visibility_timeout,
                             with_heartbeat=with_heartbeat,
                             worker_id=worker_id,
-                            worker=_worker,
+                            worker_interface=worker_interface,
                         )
                         # convert coro to a task
                         worker_task = asyncio.create_task(worker_coro, name=f"worker-{idx}")

@@ -20,16 +20,18 @@ async def test_servicebus(sb_namespace, sb_queue):
         print("CLEARING.....", jobq.full_name)
         await jobq.clear()
 
-        async with jobq.get_worker() as worker_interface:
+        async with jobq.get_worker_interface() as worker_interface:
             print("SENDING.....")
-            await jobq.push(f"test {uuid4()}", reply_requested=False, worker=worker_interface)
+            await jobq.push(
+                f"test {uuid4()}", reply_requested=False, worker_interface=worker_interface
+            )
 
             msgs = await jobq._client.peek(n=10)
             assert len(msgs) == 1
 
             print("PEEKING.....")
             print("RECEIVING.....")
-            await jobq.pull_and_execute(callback, worker=worker_interface)
+            await jobq.pull_and_execute(callback, worker_interface=worker_interface)
             print("DONE.")
 
 

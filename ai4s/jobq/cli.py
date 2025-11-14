@@ -511,10 +511,12 @@ async def pull(
     # use worker for more fine-grained control.
     async with ctx.obj.get(exist_ok=True) as queue:
         async with proc_cls() as proc:
-            async with queue.get_worker() as worker:
+            async with queue.get_worker_interface() as worker_interface:
                 try:
                     await queue.pull_and_execute(
-                        proc, visibility_timeout=visibility_timeout, worker=worker
+                        proc,
+                        visibility_timeout=visibility_timeout,
+                        worker_interface=worker_interface,
                     )
                 except WorkerCanceled:
                     LOG.info("Worker canceled.")

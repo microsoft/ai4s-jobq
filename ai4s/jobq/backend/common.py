@@ -68,5 +68,5 @@ class JobQBackend(ty.Protocol):
     ) -> Response: ...
 
     @asynccontextmanager
-    async def get_worker(self) -> ty.AsyncGenerator[JobQBackendWorker, None]:
+    async def get_worker_interface(self, **kwargs) -> ty.AsyncGenerator[JobQBackendWorker, None]:
         yield self

@@ -237,7 +237,7 @@ class JobQ:
         num_retries: int = 5,
         reply_requested: bool = False,
         id: Optional[str] = None,
-        worker: Optional[JobQBackendWorker] = None,
+        worker_interface: Optional[JobQBackendWorker] = None,
     ) -> JobQFuture:
         """Pushes a command to a queue.
 
@@ -258,15 +258,17 @@ class JobQ:
             num_retries=num_retries,
             reply_requested=reply_requested,
         )
-        worker = worker if worker is not None else self._client
-        return JobQFuture(self, await worker.push(task))
+        worker_interface = worker_interface if worker_interface is not None else self._client
+        return JobQFuture(self, await worker_interface.push(task))
 
     @property
     def full_name(self) -> str:
         return self._client.name
 
-    def get_worker(self, **kwargs):
-        return self._client.get_worker(**kwargs)
+    @asynccontextmanager
+    async def get_worker_interface(self, **kwargs) -> AsyncGenerator[JobQBackendWorker, None]:
+        async with self._client.get_worker_interface(**kwargs) as worker_interface:
+            yield worker_interface
 
     async def pull_and_execute(
         self,
@@ -278,7 +280,7 @@ class JobQ:
         visibility_timeout: timedelta = timedelta(minutes=10),
         with_heartbeat: bool = False,
         worker_id: Optional[str] = None,
-        worker: Optional[JobQBackendWorker] = None,
+        worker_interface: Optional[JobQBackendWorker] = None,
     ) -> bool:
         """Gets one task from the queue (first pushed, first pulled), verifies the signature, and executes the command.
 
@@ -297,8 +299,8 @@ class JobQ:
         """
         # Export this environment variable such that inside the jobs we can know which queue we're working on.
         os.environ["JOBQ_QUEUE_NAME"] = self.full_name
-        worker = worker if worker is not None else self._client
-        async with worker.receive_message(
+        worker_interface = worker_interface if worker_interface is not None else self._client
+        async with worker_interface.receive_message(
             visibility_timeout=visibility_timeout,
             with_heartbeat=with_heartbeat,
         ) as envelope:
