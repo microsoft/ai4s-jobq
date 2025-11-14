@@ -145,7 +145,7 @@ class StorageQueueBackend(JobQBackend):
 
     @asynccontextmanager
     async def receive_message(
-        self, visibility_timeout: timedelta, with_heartbeat: bool = False
+        self, visibility_timeout: timedelta, with_heartbeat: bool = False, **kwargs
     ) -> ty.AsyncGenerator[StorageQueueEnvelope, None]:
         assert self.queue_client is not None
         envelope = await self.queue_client.receive_message(
