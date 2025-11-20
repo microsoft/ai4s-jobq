@@ -80,6 +80,7 @@ class ServiceBusEnvelope(Envelope):
         pass
 
     async def requeue(self) -> None:
+        LOG.debug(f"Requeueing message {self.id}")
         await self.receiver.abandon_message(self.message)
 
     async def reply(self, response: Response) -> None:
