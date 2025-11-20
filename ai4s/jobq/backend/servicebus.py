@@ -328,10 +328,10 @@ class ServiceBusJobqBackendWorker:
         try:
             task = Task.deserialize(content[0])
         except Exception:
-            LOG.warning(
-                "Deleting message %s because task deserialization failed.", message.message_id
+            LOG.error(
+                "Stopping processing due to deserialization error to prevent potential data loss.",
+                exc_info=True,
             )
-            await self.receiver.complete_message(message)
             raise
         else:
             yield ServiceBusEnvelope(message, task, self.receiver, self.sender)
