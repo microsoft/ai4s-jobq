@@ -80,7 +80,7 @@ class ServiceBusEnvelope(Envelope):
         pass
 
     async def requeue(self) -> None:
-        raise NotImplementedError("ServiceBus Backend does not support requeueing yet.")
+        await self.receiver.abandon_message(self.message)
 
     async def reply(self, response: Response) -> None:
         raise NotImplementedError("ServiceBus Backend does not support replies yet.")
