@@ -145,7 +145,7 @@ class StorageQueueBackend(JobQBackend):
 
     @asynccontextmanager
     async def receive_message(
-        self, visibility_timeout: timedelta, with_heartbeat: bool = False
+        self, visibility_timeout: timedelta, with_heartbeat: bool = False, **kwargs
     ) -> ty.AsyncGenerator[StorageQueueEnvelope, None]:
         assert self.queue_client is not None
         envelope = await self.queue_client.receive_message(
@@ -179,8 +179,10 @@ class StorageQueueBackend(JobQBackend):
             try:
                 task = Task.deserialize(envelope["content"])
             except Exception:
-                LOG.warning("Deleting message %s because task deserialization failed.", envelope.id)
-                await self.queue_client.delete_message(envelope)
+                LOG.error(
+                    "Stopping processing due to deserialization error to prevent potential data loss.",
+                    exc_info=True,
+                )
                 raise
             else:
                 yield StorageQueueEnvelope(
