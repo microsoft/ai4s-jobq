@@ -86,7 +86,14 @@ class ServiceBusEnvelope(Envelope):
         raise NotImplementedError("ServiceBus Backend does not support replies yet.")
 
     async def delete(self, success: bool, error: str | None = None) -> None:
-        await self.receiver.complete_message(self.message)
+        if success:
+            await self.receiver.complete_message(self.message)
+        else:
+            # jobq may have configured a retry number threshold on the message which is lower
+            # than the queue's max delivery count, so we dead letter the message here explicitly.
+            await self.receiver.dead_letter_message(
+                self.message, reason=error or "Failed", error_description=error or ""
+            )
         self.done = True
 
     async def abandon(self) -> None:
