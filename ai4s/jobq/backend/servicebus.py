@@ -1,14 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # License under the MIT License.
-import base64
-import hashlib
-import hmac
 import json
 import logging
 import os
 import time
 import typing as ty
-import urllib.parse
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from types import TracebackType
@@ -54,26 +50,6 @@ class CachedTokenCredential:
             self.token = token
 
         return self.token
-
-
-def get_auth_token(sb_name: str, eh_name: str, sas_name: str, sas_value: str) -> ty.Dict[str, str]:
-    """
-    Returns an authorization token dictionary
-    for making calls to Event Hubs REST API.
-    """
-    uri = urllib.parse.quote_plus("https://{}.servicebus.windows.net/{}".format(sb_name, eh_name))
-    sas = sas_value.encode("utf-8")
-    expiry = str(int(time.time() + 10000))
-    string_to_sign = (uri + "\n" + expiry).encode("utf-8")
-    signed_hmac_sha256 = hmac.HMAC(sas, string_to_sign, hashlib.sha256)
-    signature = urllib.parse.quote(base64.b64encode(signed_hmac_sha256.digest()))
-    return {
-        "sb_name": sb_name,
-        "eh_name": eh_name,
-        "token": "SharedAccessSignature sr={}&sig={}&se={}&skn={}".format(
-            uri, signature, expiry, sas_name
-        ),
-    }
 
 
 class ServiceBusEnvelope(Envelope):
