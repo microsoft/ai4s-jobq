@@ -189,15 +189,19 @@ class ServiceBusJobqBackend(JobQBackend):
         assert self.client is not None
 
         n = 0
+        max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 2))
+        batch_size = int(os.environ.get("JOBQ_SERVICEBUS_BATCH_SIZE", 250))
         async with self.client.get_queue_receiver(
-            max_message_count=32,
+            max_message_count=batch_size,
             queue_name=self.queue_name,
             receive_mode=ServiceBusReceiveMode.RECEIVE_AND_DELETE,
             prefetch_count=0,
-            max_wait_time=2,
+            max_wait_time=max_wait_time,
         ) as receiver:
             while True:
-                msgs = await receiver.receive_messages(max_message_count=32, max_wait_time=1)
+                msgs = await receiver.receive_messages(
+                    max_message_count=batch_size, max_wait_time=max_wait_time
+                )
                 n += len(msgs)
                 if not msgs:
                     break
@@ -232,10 +236,11 @@ class ServiceBusJobqBackend(JobQBackend):
     async def peek(self, n: int = 1, as_json=False) -> ty.List[ServiceBusReceivedMessage]:
         assert self.client is not None
         messages: ty.List[ServiceBusReceivedMessage] = []
+        MAX_PEEK_COUNT = 250
         async with self.client.get_queue_receiver(self.queue_name) as receiver:
             while True:
                 page = await receiver.peek_messages(
-                    max_message_count=min(n, 32) if n > 0 else 32,
+                    max_message_count=min(n, MAX_PEEK_COUNT) if n > 0 else MAX_PEEK_COUNT,
                     sequence_number=messages[-1].sequence_number + 1
                     if messages and messages[-1].sequence_number is not None
                     else 0,
@@ -286,8 +291,8 @@ class ServiceBusJobqBackendWorker:
         sender_kwargs = sender_kwargs or dict()
         receiver_kwargs = receiver_kwargs or dict()
 
-        max_wait_time = int(os.environ.get("JOBQ_MAX_WAIT_TIME", 5))
-        prefetch_count = int(os.environ.get("JOBQ_PREFETCH_COUNT", 0))
+        max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 5))
+        prefetch_count = int(os.environ.get("JOBQ_SERVICEBUS_PREFETCH_COUNT", 0))
         receiver_kwargs.setdefault("receive_mode", ServiceBusReceiveMode.PEEK_LOCK)
         receiver_kwargs.setdefault("max_wait_time", max_wait_time)
         receiver_kwargs.setdefault("prefetch_count", prefetch_count)
