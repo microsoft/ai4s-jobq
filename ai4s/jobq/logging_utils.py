@@ -40,6 +40,12 @@ async def flush_app_insights():
     try:
         lp = get_logger_provider()
         if lp:
+            if not getattr(lp, "force_flush", None):
+                LOG.warning(
+                    "Logger provider (%r) does not have force_flush() method: will not attempt to flush appinsights.",
+                    lp.__class__.__name__,
+                )
+                return
             flushed = lp.force_flush()
             if not flushed:
                 LOG.warning(
@@ -47,6 +53,8 @@ async def flush_app_insights():
                 )
             else:
                 LOG.info("Flushed application insights logs.")
+        else:
+            LOG.warning("No logger provider found: cannot flush application insights logs.")
     except Exception as e:
         LOG.warning(f"Failed to flush application insights logs: {e}")
 
