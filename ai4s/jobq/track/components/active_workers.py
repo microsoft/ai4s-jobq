@@ -10,7 +10,6 @@ import plotly.express as px
 from dash import Input, Output, dash_table, dcc, html
 from dash.exceptions import PreventUpdate
 
-from ..utils import adaptive_interval
 from ..utils.log_analytics import get_distinct_values, run_query
 
 LOG = logging.getLogger(__name__)
@@ -24,6 +23,13 @@ def layout(default_queue=None):
     if default_queue and default_queue not in [q["value"] for q in queue_options]:
         queue_options.insert(0, {"label": default_queue, "value": default_queue})
 
+    if default_queue:
+        default_value = default_queue
+    elif queue_options:
+        default_value = queue_options[0]["value"]
+    else:
+        default_value = "unknown/queue"
+
     return html.Div(
         [
             dcc.Location(id="url", refresh=False),
@@ -32,7 +38,7 @@ def layout(default_queue=None):
                 [
                     dcc.DatePickerSingle(
                         id="date-picker-single",
-                        date=default_start.date(),
+                        date=default_start.date().strftime("%Y-%M-%D"),
                         display_format="YYYY-MM-DD",
                     ),
                     dcc.Input(
@@ -44,8 +50,8 @@ def layout(default_queue=None):
                     ),
                     dcc.Dropdown(
                         id="queue-dropdown",
-                        options=queue_options,
-                        value=queue_options[0]["value"] if queue_options else None,
+                        options=queue_options or [],
+                        value=default_value,
                         placeholder="Select a queue",
                         style={"width": "400px"},
                     ),
@@ -259,7 +265,7 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        dt = adaptive_interval(end - start)
+        dt = "15m"
         query = f"""
         let dt = {dt};
         AppTraces
@@ -307,14 +313,14 @@ def register_callbacks(app):
         Output("date-picker-single", "date"),
         Output("start-time", "value"),
         Input("url", "search"),
+        Input("queue-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def update_dropdown_from_url(search):
+    def update_dropdown_from_url(search, current_queue):
         params = urllib.parse.parse_qs(search.lstrip("?"))
-        distinct_queues = get_distinct_values("Properties.queue")
         start_dt = datetime.utcnow() - timedelta(hours=24)
         return (
-            params.get("queue", [distinct_queues[0]])[0],
+            params.get("queue", [current_queue])[0],
             params.get("date", [start_dt.date().isoformat()])[0],
             params.get("start_time", [start_dt.strftime("%H:%M")])[0],
         )
