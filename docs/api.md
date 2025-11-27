@@ -15,8 +15,8 @@ Rather than submitting tasks one by one using the CLI as shown in the basic exam
 
 ```python
 from azure.identity import AzureCliCredential
-
 from ai4s.jobq import JobQ, WorkSpecification
+
 
 class NumberPrinting(WorkSpecification):
   async def list_tasks(self, seed=None, force=False):
@@ -26,9 +26,6 @@ class NumberPrinting(WorkSpecification):
     for i in range(10):
       yield dict(my_number=i)
 
-  async def __call__(self, my_number):
-    # Here you define the work that you want to do for each task.
-    print(f"{my_number} squared is {my_number**2}.")
 
 work_specification = NumberPrinting()
 ```
@@ -47,31 +44,40 @@ async with JobQ.from_storage_queue("test-queue", storage_account="mystorageaccou
 And running multiple workers (in parallel with asyncio) looks like this:
 
 ```python
-from ai4s.jobq import launch_workers
+from ai4s.jobq import launch_workers, SequentialProcessor
+
+
+async def square(my_number):
+    # Here you define the work that you want to do for each task.
+    print(f"{my_number} squared is {my_number**2}.")
+
 
 async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
-  await launch_workers(
-    jobq,
-    work_specification,
-    num_workers=10
-  )
+  await launch_workers(jobq, square, num_workers=10)
 ```
 
-## Multi-Worker Logging
-
-You can contextualize your logs by writing worker and job ID. To achieve this,
-add the magic `_job_id` and `_worker_id` string parameters to your callback:
+Note that `square` is `async`, but does not do any asynchronous operations and never yields control.  That's  OK if it is only running for few seconds.
+If that's not the case, there's no benefit from running multiple workers and heartbeats may not be received by the backend in time.
+Most inherently synchronous tasks therefore benefit from using the `SequentialProcessor` wrapper, which offloads the computation to a separate
+process:
 
 ```python
-  async def __call__(self, my_number: int, _job_id: str, _worker_id: str):
-    logger = logging.getLogger(f"task.{_worker_id}.{_job_id}")
-    logger.info("Working on %d", my_number)
-    ...
+from ai4s.jobq import SequentialProcessor
+
+# NOTE: *not* async here!
+def square(my_number):
+    # Here you define the work that you want to do for each task.
+    print(f"{my_number} squared is {my_number**2}.")
+
+async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
+  await launch_workers(jobq, SequentialProcessor(square))
 ```
 
-## CPU intensive operations
+## Multiple Workers
 
-You can use a `ProcessPool` to make sure computationally-intensive work can be parallelized and does not block the queue.
+If your tasks are genuinely asynchronous, ie, they mostly call asynchronous APIs, you can just set `num_workers=5` etc. when calling launch_workers.
+
+Otherwise, you can use a `ProcessPool` to make sure computationally-intensive work can be parallelized and does not block the queue.
 
 ```python
 import os
@@ -96,11 +102,22 @@ class NumberPrinting(WorkSpecification):
     print(f"{my_number} squared is {my_number**2}.")
 ```
 
+## Multi-Worker Logging
+
+You can contextualize your logs by writing worker and job ID. To achieve this,
+add the magic `_job_id` and `_worker_id` string parameters to your callback:
+
+```python
+  async def __call__(self, my_number: int, _job_id: str, _worker_id: str):
+    logger = logging.getLogger(f"task.{_worker_id}.{_job_id}")
+    logger.info("Working on %d", my_number)
+    ...
+```
+
+
 ## Writing an entry point
 
-A common use case is to simply call a function for every item in the queue.
-This can be achieved using the `SequentialProcessor`, which removes some
-of the boilerplate code with `WorkSpecification` and `ProcessPool`.
+A common use case is to simply call a function for every item in the queue:
 
 ```python
 import asyncio
