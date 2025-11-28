@@ -6,12 +6,15 @@ import sys
 from collections import deque
 from typing import Any
 
+from azure.core.credentials import TokenCredential
 from cachetools import TTLCache
 from opentelemetry._logs import get_logger_provider
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 from opentelemetry.trace import SpanContext, TraceFlags
 from rich.logging import RichHandler
 from rich.text import Text
+
+from .auth import get_sync_token_credential
 
 TASK_LOG = logging.getLogger("task")
 LOG = logging.getLogger("ai4s.jobq")
@@ -215,6 +218,17 @@ def setup_logging(
     if connstr:
         try:
             from azure.monitor.opentelemetry import configure_azure_monitor
+
+            try:
+                credential: TokenCredential | None
+                credential = get_sync_token_credential()
+                credential.get_token("https://management.azure.com/.default")
+            except Exception as e:
+                LOG.warning(
+                    "Could not get a working token credential, setting up app insights without authentication"
+                )
+                LOG.debug(str(e))
+                credential = None
         except ImportError:
             LOG.warning(
                 "azure-monitor-opentelemetry cannot be imported. "
@@ -222,7 +236,9 @@ def setup_logging(
             )
         else:
             configure_azure_monitor(
-                connection_string=connstr, span_processors=[SkipHttpProcessor()]
+                connection_string=connstr,
+                span_processors=[SkipHttpProcessor()],
+                credential=credential,
             )
             azure_handler = logging.getLogger().handlers[-1]
             azure_handler.addFilter(SkipTaskLogsFilter())
