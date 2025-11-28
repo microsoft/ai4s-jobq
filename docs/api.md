@@ -56,10 +56,16 @@ async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eas
   await launch_workers(jobq, square, num_workers=10)
 ```
 
-Note that `square` is `async`, but does not do any asynchronous operations and never yields control.  That's  OK if it is only running for few seconds.
-If that's not the case, there's no benefit from running multiple workers and heartbeats may not be received by the backend in time.
-Most inherently synchronous tasks therefore benefit from using the `SequentialProcessor` wrapper, which offloads the computation to a separate
-process:
+Note that `square` is `async`, but does not do any asynchronous operations and
+never yields control. This blocks jobq from telling the backend that the task
+is still being processed ("heartbeat"). That's  OK if it is running for less
+than the configured visibility timeout.
+
+If your task runs longer than the configured visibility timeout, the backend
+may consider the worker as crashed and give the same task to another worker. In
+these cases, use the `SequentialProcessor` wrapper, which offloads the
+computation to a separate process. This allows jobq to send a heartbeat to the
+backend in regular intervals.
 
 ```python
 from ai4s.jobq import SequentialProcessor
