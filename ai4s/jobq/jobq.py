@@ -29,7 +29,7 @@ from azure.core.credentials_async import AsyncTokenCredential
 
 from ai4s.jobq.entities import Response, Task, WorkerCanceled
 
-from .backend.common import JobQBackend
+from .backend.common import JobQBackend, JobQBackendWorker
 
 LOG = logging.getLogger("ai4s.jobq")
 T = TypeVar("T", bound="JobQ")
@@ -94,13 +94,46 @@ class JobQ:
             raise ValueError("JOBQ_STORAGE environment variable not set.")
         if not jobq_queue:
             raise ValueError("JOBQ_QUEUE environment variable not set.")
-        async with cls.from_storage_queue(
-            jobq_queue,
-            storage_account=jobq_storage,
-            credential=None,
-            exist_ok=exist_ok,
-        ) as jobq:
-            yield jobq
+        if "JOBQ_STORAGE".startswith("sb://"):
+            fqns = jobq_storage[len("sb://") :] + ".servicebus.windows.net"
+            async with cls.from_service_bus(
+                jobq_queue,
+                fqns=fqns,
+                credential=None,
+                exist_ok=exist_ok,
+            ) as jobq:
+                yield jobq
+        else:
+            async with cls.from_storage_queue(
+                jobq_queue,
+                storage_account=jobq_storage,
+                credential=None,
+                exist_ok=exist_ok,
+            ) as jobq:
+                yield jobq
+
+    @classmethod
+    @asynccontextmanager
+    async def from_service_bus(
+        cls: Type[T],
+        name: str,
+        *,
+        fqns: Optional[str] = None,
+        credential: Optional[Any] = None,
+        exist_ok: bool = True,
+    ) -> AsyncGenerator[T, None]:
+        """Creates a new queue from a Service Bus."""
+        from .backend.servicebus import ServiceBusJobqBackend
+
+        assert fqns is not None
+        async with ServiceBusJobqBackend(
+            queue_name=name,
+            fqns=fqns,
+            credential=credential,
+        ) as backend:
+            await backend.create(exist_ok=exist_ok)
+            str_credential = credential if isinstance(credential, str) else None
+            yield cls(backend, credential=str_credential)
 
     @classmethod
     @asynccontextmanager
@@ -204,6 +237,7 @@ class JobQ:
         num_retries: int = 5,
         reply_requested: bool = False,
         id: Optional[str] = None,
+        worker_interface: Optional[JobQBackendWorker] = None,
     ) -> JobQFuture:
         """Pushes a command to a queue.
 
@@ -224,11 +258,17 @@ class JobQ:
             num_retries=num_retries,
             reply_requested=reply_requested,
         )
-        return JobQFuture(self, await self._client.push(task))
+        worker_interface = worker_interface if worker_interface is not None else self._client
+        return JobQFuture(self, await worker_interface.push(task))
 
     @property
     def full_name(self) -> str:
         return self._client.name
+
+    @asynccontextmanager
+    async def get_worker_interface(self, **kwargs) -> AsyncGenerator[JobQBackendWorker, None]:
+        async with self._client.get_worker_interface(**kwargs) as worker_interface:
+            yield worker_interface
 
     async def pull_and_execute(
         self,
@@ -240,6 +280,7 @@ class JobQ:
         visibility_timeout: timedelta = timedelta(minutes=10),
         with_heartbeat: bool = False,
         worker_id: Optional[str] = None,
+        worker_interface: Optional[JobQBackendWorker] = None,
     ) -> bool:
         """Gets one task from the queue (first pushed, first pulled), verifies the signature, and executes the command.
 
@@ -258,7 +299,8 @@ class JobQ:
         """
         # Export this environment variable such that inside the jobs we can know which queue we're working on.
         os.environ["JOBQ_QUEUE_NAME"] = self.full_name
-        async with self._client.receive_message(
+        worker_interface = worker_interface if worker_interface is not None else self._client
+        async with worker_interface.receive_message(
             visibility_timeout=visibility_timeout,
             with_heartbeat=with_heartbeat,
         ) as envelope:
