@@ -253,6 +253,60 @@ async def test_time_limit(mocker, tmp_path, caplog, queue_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.live
+async def test_signal_handling_servicebus(mocker, tmp_path, sb_namespace, sb_queue) -> None:
+    """
+    Check that we can cleanly abort workers when the top level process receives a SIGTERM.
+    """
+
+    queue_spec = f"sb://{sb_namespace}/{sb_queue}"
+
+    await cli_cmd("clear", queue_spec=[queue_spec])
+
+    # insert useless quotes in the print string so that we can check whether it's actually
+    # executed, as opposed the command being printed.
+    await cli_cmd(
+        "push",
+        "-c",
+        'sleep 20 & trap "echo ba""sh got signal-A; kill -15 $!" SIGTERM; wait $!',
+        queue_spec=[queue_spec],
+    )
+    await cli_cmd(
+        "push",
+        "-c",
+        'sleep 20 & trap "echo ba""sh got signal-B; kill -15 $!" SIGTERM; wait $!',
+        queue_spec=[queue_spec],
+    )
+    worker_cmd = (
+        shutil.which("ai4s-jobq") or "ai4s-jobq",
+        "-vv",
+        queue_spec,
+        "worker",
+        "-n",
+        "2",
+        "--visibility-timeout=30s",
+    )
+    with subprocess.Popen(
+        worker_cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+    ) as proc:
+        with pytest.raises(subprocess.TimeoutExpired):
+            proc.communicate(timeout=10)
+        start = datetime.now()
+        proc.send_signal(signal.SIGINT)
+        stdout, stderr = proc.communicate()
+        end = datetime.now()
+
+    assert "bash got signal-A" in (stderr + stdout)
+    assert "bash got signal-B" in (stderr + stdout)
+    assert (stderr + stdout).count("Requeueing") == 2
+    # should be done in less than the task's sleep time
+    assert (end - start).total_seconds() < 4
+
+
+@pytest.mark.asyncio
 async def test_signal_handling(mocker, tmp_path, queue_name) -> None:
     """
     Check that we can cleanly abort workers when the top level process receives a SIGTERM.
