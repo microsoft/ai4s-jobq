@@ -92,6 +92,8 @@ async def test_servicebus_stress_mp(sb_namespace, sb_queue):
 
     n_seeds, n_tasks_per_seed = 10, 200
 
+    magic_str = uuid4().hex
+
     expected = set()
 
     class Work(WorkSpecification):
@@ -104,7 +106,7 @@ async def test_servicebus_stress_mp(sb_namespace, sb_queue):
 
         async def list_tasks(self, seed: str, force: bool = False):
             for i in range(n_tasks_per_seed):
-                cmd = f"echo 'processing {seed} - task {i}'"
+                cmd = f"echo 'process''ing {magic_str} {seed} - task {i}X'"
                 yield cmd
                 expected.add(cmd)
 
@@ -118,7 +120,7 @@ async def test_servicebus_stress_mp(sb_namespace, sb_queue):
                 await batch_enqueue(jobq, work)
 
     with ProcessPoolExecutor(max_workers=n_seeds) as executor:
-        executable = shutil.which("ai4s-jobq")  # Ensure ai4s-jobq is available
+        executable = shutil.which("ai4s-jobq")
         futures = [
             executor.submit(
                 partial(
@@ -134,8 +136,8 @@ async def test_servicebus_stress_mp(sb_namespace, sb_queue):
         output = "\n".join([r.stdout for r in results])
         for seed in range(n_seeds):
             for i in range(n_tasks_per_seed):
-                cmd = f"processing seed {seed} - task {i}"
-                assert cmd in output
+                cmd = f"processing {magic_str} seed {seed} - task {i}X"
+                assert output.count(cmd) == 1
 
 
 @pytest.mark.live
