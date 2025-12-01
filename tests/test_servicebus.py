@@ -80,6 +80,66 @@ async def test_servicebus_stress(sb_namespace, sb_queue):
 
 @pytest.mark.live
 @pytest.mark.asyncio
+async def test_servicebus_stress_mp(sb_namespace, sb_queue):
+    """
+    Run Servicebus test with multiple worker processes, not co-routines.
+    """
+
+    import shutil
+    import subprocess
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from functools import partial
+
+    n_seeds, n_tasks_per_seed = 10, 200
+
+    expected = set()
+
+    class Work(WorkSpecification):
+        def __init__(self):
+            super().__init__()
+
+        async def task_seeds(self):
+            for item in [f"seed {_}" for _ in range(n_seeds)]:
+                yield item
+
+        async def list_tasks(self, seed: str, force: bool = False):
+            for i in range(n_tasks_per_seed):
+                cmd = f"echo 'processing {seed} - task {i}'"
+                yield cmd
+                expected.add(cmd)
+
+    async with Work() as work:
+        async with get_token_credential() as credential:
+            async with JobQ.from_service_bus(
+                sb_queue, fqns=f"{sb_namespace}.servicebus.windows.net", credential=credential
+            ) as jobq:
+                await jobq.clear()
+
+                await batch_enqueue(jobq, work)
+
+    with ProcessPoolExecutor(max_workers=n_seeds) as executor:
+        executable = shutil.which("ai4s-jobq")  # Ensure ai4s-jobq is available
+        futures = [
+            executor.submit(
+                partial(
+                    subprocess.run,
+                    [executable, f"sb://{sb_namespace}/{sb_queue}", "worker"],
+                    stdout=subprocess.PIPE,
+                    text=True,
+                ),
+            )
+            for _ in range(n_seeds)
+        ]
+        results = [f.result() for f in as_completed(futures)]
+        output = "\n".join([r.stdout for r in results])
+        for seed in range(n_seeds):
+            for i in range(n_tasks_per_seed):
+                cmd = f"processing seed {seed} - task {i}"
+                assert cmd in output
+
+
+@pytest.mark.live
+@pytest.mark.asyncio
 async def test_servicebus_retry(sb_namespace, sb_queue):
     n_seeds, n_tasks_per_seed = 10, 20
 
