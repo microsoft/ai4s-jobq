@@ -1,6 +1,13 @@
 CHANGELOG
 =========
 
+2.14.0 (2025-12-04)
+-------------------
+
+* feat(logging): authenticate appinsights if token credential available (#15)
+* fix(track): ensure CLI queue is selected at startup (#16)
+* doc(api): improved ordering for new users (#17)
+
 2.13.1 (2025-11-06)
 -------------------
 
