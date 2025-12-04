@@ -15,22 +15,19 @@ Rather than submitting tasks one by one using the CLI as shown in the basic exam
 
 ```python
 from azure.identity import AzureCliCredential
-
 from ai4s.jobq import JobQ, WorkSpecification
 
-class NumberPrinting(WorkSpecification):
+
+class NumberSquaring(WorkSpecification):
   async def list_tasks(self, seed=None, force=False):
     # Here you define the tasks that you want to run.
     # Tasks are dictionaries that will be passed to the __call__ method below.
     # See the WorkSpecification protocol for more options.
     for i in range(10):
-      yield dict(my_number=i)
+      yield dict(my_number=i)  # kwargs of the `square()` method below
 
-  async def __call__(self, my_number):
-    # Here you define the work that you want to do for each task.
-    print(f"{my_number} squared is {my_number**2}.")
 
-work_specification = NumberPrinting()
+work_specification = NumberSquaring()
 ```
 
 You then enqueue tasks like this:
@@ -40,21 +37,83 @@ from ai4s.jobq import batch_enqueue
 
 async with JobQ.from_storage_queue("test-queue", storage_account="mystorageaccount", credential=AzureCliCredential()) as jobq:
   await batch_enqueue(jobq, work_specification)
-  # or, as a shortcut:
-  await batch_enqueue(jobq, [dict(my_number=i) for i in range(10)])
+
+  # or, equivalently,
+  await batch_enqueue(jobq, [dict(my_number=i) for i in range(10)])  # kwargs of the `square()` method below
 ```
 
 And running multiple workers (in parallel with asyncio) looks like this:
 
 ```python
-from ai4s.jobq import launch_workers
+from ai4s.jobq import launch_workers, SequentialProcessor
+
+
+async def square(my_number):
+    # Here you define the work that you want to do for each task.
+    print(f"{my_number} squared is {my_number**2}.")
+
 
 async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
-  await launch_workers(
-    jobq,
-    work_specification,
-    num_workers=10
-  )
+  await launch_workers(jobq, square, num_workers=10)
+```
+
+Note that `square` is `async`, but does not do any asynchronous operations and
+never yields control. This blocks jobq from telling the backend that the task
+is still being processed ("heartbeat"). That's  OK if it is running for less
+than the configured visibility timeout.
+
+If your task runs longer than the configured visibility timeout, the backend
+may consider the worker as crashed and give the same task to another worker. In
+these cases, use the `SequentialProcessor` wrapper, which offloads the
+computation to a separate process. This allows jobq to send a heartbeat to the
+backend in regular intervals.
+
+```python
+from ai4s.jobq import SequentialProcessor
+
+# NOTE: *not* async here!
+def square(my_number):
+    # Here you define the work that you want to do for each task.
+    print(f"{my_number} squared is {my_number**2}.")
+
+async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
+  async with SequentialProcessor(square) as processor:
+    await launch_workers(jobq, processor)
+```
+
+## Multiple Workers
+
+If your tasks are genuinely asynchronous, ie, they mostly call asynchronous APIs, you can just set `num_workers=5` etc. when calling launch_workers.
+
+Otherwise, you can use a `ProcessPool` to make sure computationally-intensive work can be parallelized and does not block the queue.
+
+```python
+import os
+import time
+from functools import partial
+
+from ai4s.jobq import WorkSpecification, ProcessPool, Processor
+
+class NumberSquaring(WorkSpecification):
+  async def list_tasks(self, seed=None, force=False):
+    for i in range(10):
+      await self.pool.submit(partial(time.sleep, 5))  # Compute intensive task
+      yield dict(my_number=i)   # kwargs of the processor's __call__ below
+
+
+class NumberSquaringProcessor(Processor):
+  def __init__(self):
+    self.pool = ProcessPool(pool_size=os.cpu_count())
+    self.register_context_manager(self.pool)
+
+  async def __call__(self, my_number):
+    await self.pool.submit(partial(time.sleep, 5))  # Compute intensive task
+    print(f"{my_number} squared is {my_number**2}.")
+
+
+async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
+  async with NumberSquaringProcessor() as processor:
+    await launch_workers(jobq, processor)
 ```
 
 ## Multi-Worker Logging
@@ -69,38 +128,10 @@ add the magic `_job_id` and `_worker_id` string parameters to your callback:
     ...
 ```
 
-## CPU intensive operations
-
-You can use a `ProcessPool` to make sure computationally-intensive work can be parallelized and does not block the queue.
-
-```python
-import os
-import time
-from functools import partial
-
-from ai4s.jobq import WorkSpecification, ProcessPool
-
-class NumberPrinting(WorkSpecification):
-  def __init__(self):
-    super().__init__()
-    self.pool = ProcessPool(pool_size=os.cpu_count())
-    self.register_context_manager(self.pool)
-
-  async def list_tasks(self, seed=None, force=False):
-    for i in range(10):
-      await self.pool.submit(partial(time.sleep, 5))  # Compute intensive task
-      yield dict(my_number=i)
-
-  async def __call__(self, my_number):
-    await self.pool.submit(partial(time.sleep, 5))  # Compute intensive task
-    print(f"{my_number} squared is {my_number**2}.")
-```
 
 ## Writing an entry point
 
-A common use case is to simply call a function for every item in the queue.
-This can be achieved using the `SequentialProcessor`, which removes some
-of the boilerplate code with `WorkSpecification` and `ProcessPool`.
+A common use case is to simply call a function for every item in the queue:
 
 ```python
 import asyncio
@@ -112,7 +143,8 @@ def my_cpu_intensive_work(**kwargs):
 async def main():
   async with JobQ.from_environment() as jobq:
     setup_logging(jobq.full_name)
-    await launch_workers(jobq, SequentialProcessor(my_cpu_intensive_work))
+    async with SequentialProcessor(my_cpu_intensive_work) as proc:
+      await launch_workers(jobq, proc)
 
 asyncio.run(main())
 ```
@@ -148,6 +180,9 @@ class BlobSizeCounting(WorkSpecification):
     async for blob in self.container.client.list_blobs(name_starts_with=seed):
       yield {"blob": blob.name}
 
+  # Note: we include __call__ here in the WorkSpecification because it's
+  # logically related to how tasks are listed. You can keep the Processor entirely
+  # separate though, if you prefer.
   async def __call__(self, blob, **kwargs):
     # Download the blob and report its size (just as an example).
     with TemporaryDirectory(dir="/dev/shm") as tmpdir:
