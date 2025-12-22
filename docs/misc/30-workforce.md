@@ -13,6 +13,7 @@ The first step is to define a task that can be executed by the workforce. You wi
 
 ```python
 from azure.ai.ml import command
+from azure.ai.ml.entities import Environment, ManagedIdentityConfiguration
 
 # example environment variables for identity and monitoring
 environment_variables = {
