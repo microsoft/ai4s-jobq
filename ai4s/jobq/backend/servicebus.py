@@ -138,8 +138,6 @@ class ServiceBusJobqBackend(JobQBackend):
             raise RuntimeError("No credential provided.")
 
         self.client = await self.client.__aenter__()  # type: ignore
-        # if the message hasn't been processed in 3 weeks, the lock will not be renewed.
-        self.lock_renewer = await AutoLockRenewer(60 * 60 * 24 * 21).__aenter__()
         return self
 
     async def __aexit__(
@@ -149,7 +147,6 @@ class ServiceBusJobqBackend(JobQBackend):
         tb: ty.Optional[TracebackType],
     ) -> None:
         assert self.client is not None
-        await self.lock_renewer.__aexit__(exc_type, exc, tb)  # type: ignore
         await self.client.__aexit__(exc_type, exc, tb)  # type: ignore
 
     async def push(self, task: Task) -> str:
@@ -305,13 +302,15 @@ class ServiceBusJobqBackendWorker:
             self.sender = None
         else:
             self.sender = backend.client.get_queue_sender(backend.queue_name, **sender_kwargs)
-        self.lock_renewer = backend.lock_renewer
+        self.lock_renewer: ty.Optional[AutoLockRenewer] = None
 
     async def __aenter__(self) -> "ServiceBusJobqBackendWorker":
         if self.receiver is not None:
             await self.receiver.__aenter__()
         if self.sender is not None:
             await self.sender.__aenter__()
+        # if the message hasn't been processed in 3 weeks, the lock will not be renewed.
+        self.lock_renewer = await AutoLockRenewer(60 * 60 * 24 * 21).__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -319,20 +318,24 @@ class ServiceBusJobqBackendWorker:
             await self.receiver.__aexit__(exc_type, exc, tb)
         if self.sender is not None:
             await self.sender.__aexit__(exc_type, exc, tb)
+        if self.lock_renewer is not None:
+            await self.lock_renewer.__aexit__(exc_type, exc, tb)  # type: ignore
 
     @asynccontextmanager
     async def receive_message(
         self,
         visibility_timeout: timedelta,
         with_heartbeat: bool = False,
-        use_locking=True,
         **kwargs,
     ) -> ty.AsyncGenerator[ServiceBusEnvelope, None]:
         assert self.receiver is not None, "Receiver is not initialized."
         messages = await self.receiver.receive_messages(max_message_count=1, **kwargs)
         if not messages:
             raise EmptyQueue(f"The queue {self.backend.name} has no more tasks.")
-        if use_locking:
+        if with_heartbeat:
+            assert (
+                self.lock_renewer is not None
+            ), "Lock renewer is not initialized, forgot to use 'async with'?."
             self.lock_renewer.register(self.receiver, messages[0])
         content = [m for m in messages[0].body]
         assert len(content) == 1
