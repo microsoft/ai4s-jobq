@@ -28,6 +28,7 @@ jobs:
     - name: Install dependencies
       run: |
         conda install nodejs
+        node -v
         npm install azurite
         ./node_modules/.bin/azurite-blob --skipApiVersionCheck --inMemoryPersistence --blobPort 10000 &
         ./node_modules/.bin/azurite-queue --skipApiVersionCheck --inMemoryPersistence --queuePort 10001 &
