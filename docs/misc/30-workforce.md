@@ -122,12 +122,14 @@ task = command(
         outputs={"blobstor": output},
         ...
 )
-
-# the directory will be mounted to a path accessible via `${{outputs.blobstor}}`.
-# to link it to a specified cache directory `cache_dir` on the local compute, 
-# prepend the following string to your command:
-# f'mkdir -p {cache_dir} && ln -s "${{outputs.blobstor}}" {os.path.join(cache_dir, CONTAINER_NAME)} && '
 ```
+
+The directory will be mounted to a path accessible via `${{outputs.blobstor}}`.
+To link it to a specified cache directory `cache_dir` on the local compute, the following string can be prepended to the command string:
+```python
+f'mkdir -p {cache_dir} && ln -s "${{outputs.blobstor}}" {os.path.join(cache_dir, CONTAINER_NAME)} && '
+```
+
 
 ## Back Channel Communication
 
