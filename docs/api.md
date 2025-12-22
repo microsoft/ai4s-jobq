@@ -37,24 +37,39 @@ You then enqueue tasks like this:
 
 ```python
 from ai4s.jobq import batch_enqueue
+from ai4s.auth import get_token_credential
 
-async with JobQ.from_storage_queue("test-queue", storage_account="mystorageaccount", credential=AzureCliCredential()) as jobq:
-  await batch_enqueue(jobq, work_specification)
-  # or, as a shortcut:
-  await batch_enqueue(jobq, [dict(my_number=i) for i in range(10)])
+async with get_token_credential() as cred:
+  async with JobQ.from_storage_queue("test-queue", storage_account="mystorageaccount", credential=cred) as jobq:
+    await batch_enqueue(jobq, work_specification)
+    # or, as a shortcut:
+    await batch_enqueue(jobq, [dict(my_number=i) for i in range(10)])
 ```
 
 And running multiple workers (in parallel with asyncio) looks like this:
 
 ```python
 from ai4s.jobq import launch_workers
+from ai4s.auth import get_token_credential
 
-async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
-  await launch_workers(
-    jobq,
-    work_specification,
-    num_workers=10
-  )
+async with get_token_credential() as cred:
+  async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=cred) as jobq:
+    await launch_workers(
+      jobq,
+      work_specification,
+      num_workers=10
+    )
+```
+
+
+For Azure Servicebus, the jobq is created using:
+
+```python
+from ai4s.auth import get_token_credential
+
+async with get_token_credential() as cred:
+  async with JobQ.from_service_bus("test-queue", fqns="mysb.servicebus.windows.net", credential=cred) as jobq:
+    ...
 ```
 
 ## Multi-Worker Logging

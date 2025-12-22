@@ -558,7 +558,10 @@ async def pull(
 @click.option(
     "--heartbeat/--no-heartbeat",
     default=True,
-    help="Enable heartbeat for long running tasks, extending visibility_timeout indefinitely.",
+    help=(
+        "Enable heartbeat for long running tasks, extending visibility_timeout indefinitely. "
+        "Defaults to enabled."
+    ),
 )
 @click.option(
     "--proc",
