@@ -13,6 +13,7 @@ The first step is to define a task that can be executed by the workforce. You wi
 
 ```python
 from azure.ai.ml import command
+from azure.ai.ml.entities import Environment, ManagedIdentityConfiguration
 
 # example environment variables for identity and monitoring
 environment_variables = {
@@ -101,6 +102,35 @@ If you then run the `MultiregionWorkforce`, it will automatically scale the work
 ```python
 multi_region_workforce.run()
 ```
+## Access to data
+If filesystem access to data is required (read/write), blob storage can be *mounted* using the following tweak to setting up the `command`:
+
+```python
+from azure.ai.ml import Output
+from azure.ai.ml.constants import InputOutputModes
+
+# container and storage account names can be read from a blob URL, e.g.,
+# https://STORAGE_ACCOUNT_NAME.blob.core.windows.net/CONTAINER_NAME/
+output = Output(
+    path=f"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT_NAME}.blob.core.windows.net",
+    mode=InputOutputModes.RW_MOUNT,
+)
+
+# set up the command as above, adding `output`:
+task = command(
+        command=...,
+        outputs={"blobstor": output},
+        ...
+)
+```
+
+The directory will be mounted to a path accessible via `${{outputs.blobstor}}`.
+To link it to a specified cache directory `cache_dir` on the local compute, the following string can be prepended to the command string:
+
+```python
+f'mkdir -p {cache_dir} && ln -s "${{outputs.blobstor}}" {os.path.join(cache_dir, CONTAINER_NAME)} && '
+```
+
 
 ## Back Channel Communication
 
