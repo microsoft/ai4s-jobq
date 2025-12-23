@@ -39,11 +39,11 @@ By decoupling job creation from execution, `ai4s.jobq` allows users to queue up 
   *(Requires Storage Queue Data Contributor role on the selected storage account for Azure Storage Queues or Azure Service Bus Data Owner role for Servicebus.)*
 - **Advanced Python API**: Efficient handling of I/O-bound tasks, minimizing overhead in blob storage interactions and reducing the need for manual multi-threading/multi-processing.
 - **Scalability & Efficiency**: Enables large-scale distributed batch processing while being able to rely on cheap and available pre-emptible compute.
-- **Observability**: Workers can transmit telemetry which powers a dashboard to monitor queue progress.
+- **Observability**: Workers can transmit telemetry which powers a Grafana/local dashboard to monitor queue progress.
 
 ## **AI for Science: Powering Large-Scale Research**
 
-`ai4s.jobq` is a **critical tool** in Microsoft Research -- AI for Science, enabling researchers to handle massive computational workloads with ease. It plays a key role in:  
+`ai4s.jobq` is a **critical tool** in Microsoft Research -- AI for Science, enabling researchers to handle massive computational workloads with ease. It plays a key role in:
 
 🔹 **Generating large-scale synthetic datasets** for AI-driven simulations.
 🔹 **Efficiently pre- and post-processing** vast amounts of scientific data.
@@ -52,7 +52,7 @@ By decoupling job creation from execution, `ai4s.jobq` allows users to queue up 
 ### **Why AI for Science Relies on `ai4s.jobq`**
 
 🚀 **Maximizing Compute Efficiency**
-By seamlessly leveraging **preemptible compute across diverse environments**, `ai4s.jobq` significantly boosts scalability while reducing costs—accelerating scientific discovery without wasted resources.  
+By seamlessly leveraging **preemptible compute across diverse environments**, `ai4s.jobq` significantly boosts scalability while reducing costs—accelerating scientific discovery without wasted resources.
 
 🛠 **Focusing on Science, Not Infrastructure**
 Researchers can **stay focused on their work** instead of dealing with unreliable infrastructure. `ai4s.jobq` abstracts away system failures and optimizes task execution, **freeing up valuable time** for breakthroughs in AI and science.  
