@@ -34,12 +34,14 @@ You then enqueue tasks like this:
 
 ```python
 from ai4s.jobq import batch_enqueue
+from ai4s.auth import get_token_credential
 
-async with JobQ.from_storage_queue("test-queue", storage_account="mystorageaccount", credential=AzureCliCredential()) as jobq:
-  await batch_enqueue(jobq, work_specification)
 
-  # or, equivalently,
-  await batch_enqueue(jobq, [dict(my_number=i) for i in range(10)])  # kwargs of the `square()` method below
+async with get_token_credential() as cred:
+  async with JobQ.from_storage_queue("test-queue", storage_account="mystorageaccount", credential=cred) as jobq:
+    await batch_enqueue(jobq, work_specification)
+    # or, equivalently:
+    await batch_enqueue(jobq, [dict(my_number=i) for i in range(10)])  # kwargs of the `square()` method below
 ```
 
 And running multiple workers (in parallel with asyncio) looks like this:
@@ -53,8 +55,24 @@ async def square(my_number):
     print(f"{my_number} squared is {my_number**2}.")
 
 
-async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
-  await launch_workers(jobq, square, num_workers=10)
+async with get_token_credential() as cred:
+  async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=cred) as jobq:
+    await launch_workers(
+      jobq,
+      square,
+      num_workers=10
+    )
+```
+
+
+
+```python
+from ai4s.auth import get_token_credential
+
+
+async with get_token_credential() as cred:
+  async with JobQ.from_service_bus("test-queue", fqns="mysb.servicebus.windows.net", credential=cred) as jobq:
+    ...
 ```
 
 Note that `square` is `async`, but does not do any asynchronous operations and
@@ -71,10 +89,12 @@ backend in regular intervals.
 ```python
 from ai4s.jobq import SequentialProcessor
 
+
 # NOTE: *not* async here!
 def square(my_number):
     # Here you define the work that you want to do for each task.
     print(f"{my_number} squared is {my_number**2}.")
+
 
 async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
   async with SequentialProcessor(square) as processor:
@@ -91,8 +111,8 @@ Otherwise, you can use a `ProcessPool` to make sure computationally-intensive wo
 import os
 import time
 from functools import partial
-
 from ai4s.jobq import WorkSpecification, ProcessPool, Processor
+
 
 class NumberSquaring(WorkSpecification):
   async def list_tasks(self, seed=None, force=False):
@@ -103,6 +123,7 @@ class NumberSquaring(WorkSpecification):
 
 class NumberSquaringProcessor(Processor):
   def __init__(self):
+    super().__init__()
     self.pool = ProcessPool(pool_size=os.cpu_count())
     self.register_context_manager(self.pool)
 
@@ -111,7 +132,7 @@ class NumberSquaringProcessor(Processor):
     print(f"{my_number} squared is {my_number**2}.")
 
 
-async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=AzureCliCredential()) as jobq:
+async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eastus", credential=cred) as jobq:
   async with NumberSquaringProcessor() as processor:
     await launch_workers(jobq, processor)
 ```
@@ -137,8 +158,10 @@ A common use case is to simply call a function for every item in the queue:
 import asyncio
 from ai4s.jobq import SequentialProcessor, launch_workers, JobQ, setup_logging
 
+
 def my_cpu_intensive_work(**kwargs):
   ...
+
 
 async def main():
   async with JobQ.from_environment() as jobq:

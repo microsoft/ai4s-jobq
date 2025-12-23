@@ -15,6 +15,22 @@ def pytest_addoption(parser):
         default=False,
         help="run live servicebus tests",
     )
+    parser.addoption(
+        "--sb-namespace", action="store", default="ai4s-shared", help="Azure Service Bus namespace"
+    )
+    parser.addoption(
+        "--sb-queue", action="store", default="testq", help="Azure Service Bus queue name"
+    )
+
+
+@pytest.fixture
+def sb_namespace(request):
+    return request.config.getoption("--sb-namespace")
+
+
+@pytest.fixture
+def sb_queue(request):
+    return request.config.getoption("--sb-queue")
 
 
 def pytest_configure(config):

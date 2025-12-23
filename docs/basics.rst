@@ -1,11 +1,15 @@
-Basic operation
-================
+Basic Operation
+===============
 
 A queue is specified by a storage account and a queue name:
 
 .. prompt:: bash $ auto
 
+   # for Azure Storage Queue
    export JOBQ="mystorageaccount/test-queue"
+
+   # for Azure Service Bus Queue
+   export JOBQ="sb://servicebusname/testqueue"
 
 You should pick a name that avoids conflicts with other people. All the tasks on a queue are expected to run in the same "environment" and on the same "hardware". If you want to send some tasks to GPU workers and other tasks to CPU workers, use separate queue names.
 
@@ -28,11 +32,12 @@ Pull the first-pushed job from the queue and execute it.
 - If the job fails, it is put back in the queue, until the max number of retries is exceeded.
 
 If a worker dies while processing a task, the task will reappear at the end of
-the queue after ``--visibility-timeout``. (This functionality is provided by Azure queues.)
+the queue after ``--visibility-timeout``. (This functionality is provided by Azure queues. For Service Bus queues, the default visibility cannot be changed.)
 
 When pushing commands, you can also:
 - specify environment variables, eg. ``-e AMLT_OUTPUT_DIR=/mnt/default/some/dir``
 - enable background directory syncing like in amulet ``--bg-dirsync-to /mnt/default/some/dir``, and let your job write to ``$AMLT_DIRSYNC_DIR``.
+
 
 **Queueing many jobs from CLI**
 
