@@ -130,8 +130,8 @@ class JobQ:
             queue_name=name,
             fqns=fqns,
             credential=credential,
+            exist_ok=exist_ok,
         ) as backend:
-            await backend.create(exist_ok=exist_ok)
             str_credential = credential if isinstance(credential, str) else None
             yield cls(backend, credential=str_credential)
 
