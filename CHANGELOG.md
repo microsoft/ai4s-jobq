@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+2.15.1 (2026-01-08)
+-------------------
+
+* fix(servicebus): queue creation was attempted after first access, causing a crash
+
 2.15.0 (2025-12-23)
 -------------------
 

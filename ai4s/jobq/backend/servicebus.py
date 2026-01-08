@@ -116,12 +116,14 @@ class ServiceBusJobqBackend(JobQBackend):
         *,
         fqns: ty.Optional[str] = None,
         credential: ty.Optional[ty.Any] = None,
+        exist_ok: bool = True,
     ):
         self.fqns = fqns
         self.queue_name = queue_name
         self.reply_queue_name = queue_name + "-replies"
         self.client: ty.Optional[ServiceBusClient] = None
         self.credential = credential
+        self._exist_ok = exist_ok
 
     async def __aenter__(self) -> "ServiceBusJobqBackend":
         if self.credential is not None:
@@ -137,6 +139,7 @@ class ServiceBusJobqBackend(JobQBackend):
         else:
             raise RuntimeError("No credential provided.")
 
+        await self.create(exist_ok=self._exist_ok)
         self.client = await self.client.__aenter__()  # type: ignore
         return self
 
