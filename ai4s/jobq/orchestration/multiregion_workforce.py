@@ -102,14 +102,13 @@ class MultiRegionWorkforce:
             ) as jobq:
                 queue_size = await jobq.get_approximate_size()
         else:
-            
             async with JobQ.from_storage_queue(
                 self.queue_name,
                 storage_account=self.storage_account,
                 credential=self.credential,
             ) as jobq:
                 queue_size = await jobq.get_approximate_size()
-        
+
         LOG.info(f"Queue size: {queue_size}")
 
         if queue_size == 0:
