@@ -1,6 +1,12 @@
 CHANGELOG
 =========
 
+2.16.0 (2026-01-09)
+------------------
+
+* make multiregion workforce compatible with service bus backend
+
+
 2.15.1 (2026-01-08)
 -------------------
 

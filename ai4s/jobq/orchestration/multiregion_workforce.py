@@ -31,7 +31,7 @@ class MultiRegionWorkforce:
         workforces: A list of Workforce objects to manage across regions.
         num_workers: Number of workers per job.
         queue_name: The name of the queue to process.
-        storage_account: The storage account containing the queue.
+        storage_account: The storage account containing the queue or the servicebus, in the format sb://SERVICEBUS_NAMESPACE.
         credential: Azure credential for authentication.
         max_num_workers: Maximum number of workers to scale up to (defaults to MAX_WORKERS_LIMIT).
         use_lazy_states: Whether to cache workforce states between calls.
@@ -93,13 +93,23 @@ class MultiRegionWorkforce:
         Returns:
             The number of workers to scale to.
         """
-        async with JobQ.from_storage_queue(
-            self.queue_name,
-            storage_account=self.storage_account,
-            credential=self.credential,
-        ) as jobq:
-            queue_size = await jobq.get_approximate_size()
-            LOG.info(f"Queue size: {queue_size}")
+        if self.storage_account.startswith("sb://"):
+            # backend is a servicebus queue
+            async with JobQ.from_service_bus(
+                self.queue_name,
+                fqns=f"{self.storage_account[5:]}.servicebus.windows.net",
+                credential=self.credential,
+            ) as jobq:
+                queue_size = await jobq.get_approximate_size()
+        else:
+            async with JobQ.from_storage_queue(
+                self.queue_name,
+                storage_account=self.storage_account,
+                credential=self.credential,
+            ) as jobq:
+                queue_size = await jobq.get_approximate_size()
+
+        LOG.info(f"Queue size: {queue_size}")
 
         if queue_size == 0:
             return 0
