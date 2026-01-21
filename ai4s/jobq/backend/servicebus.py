@@ -313,8 +313,13 @@ class ServiceBusJobqBackendWorker:
         if self.sender is not None:
             await self.sender.__aenter__()
         # if the message hasn't been processed in 3 weeks, the lock will not be renewed.
-        self.lock_renewer = await AutoLockRenewer(60 * 60 * 24 * 21).__aenter__()
+        self.lock_renewer = await AutoLockRenewer(
+            60 * 60 * 24 * 21, on_lock_renew_failure=self.lock_renewal_failed
+        ).__aenter__()
         return self
+
+    async def lock_renewal_failed(self, renewable, error: ty.Optional[Exception]) -> None:
+        LOG.error(f"Lock renewal failed for {renewable}: {error}", exc_info=True)
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         if self.receiver is not None:
@@ -340,6 +345,7 @@ class ServiceBusJobqBackendWorker:
                 self.lock_renewer is not None
             ), "Lock renewer is not initialized, forgot to use 'async with'?."
             self.lock_renewer.register(self.receiver, messages[0])
+            LOG.debug(f"Registered lock renewer for message {messages[0].message_id}")
         content = [m for m in messages[0].body]
         assert len(content) == 1
         message = messages[0]

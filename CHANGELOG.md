@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+2.15.2 (2026-01-08)
+-------------------
+
+* chore(servicebus): add debug info for message locking
+
 2.15.1 (2026-01-08)
 -------------------
 
