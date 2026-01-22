@@ -408,12 +408,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         return ty.cast(ResultType, ret)
 
     async def _create_pool(self) -> ProcessPoolExecutor:
-        def init_process():
-            # ignore SIGINT in children, because shell sends it to the whole process group
-            # and we want the parent to handle it
-            signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-        return ProcessPoolExecutor(self.pool_size, initializer=init_process)
+        return ProcessPoolExecutor(self.pool_size, initializer=_process_pool_signal_handler)
 
     async def _wait_for_msg_queue_to_drain(self) -> None:
         assert self.log_msg_queue is not None, "Log message queue not initialized"
@@ -609,3 +604,9 @@ class ProgressStats(TextColumn):
     @text_format.setter
     def text_format(self, value: str) -> None:
         self._fixed_text = value
+
+
+def _process_pool_signal_handler():
+    # ignore SIGINT in children, because shell sends it to the whole process group
+    # and we want the parent to handle it
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
