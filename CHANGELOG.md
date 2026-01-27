@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+2.16.2 (2026-01-27)
+-------------------
+
+* catch ProcessLookupError when process we want to kill already ended
+
 2.16.1 (2026-01-22)
 ------------------
 
