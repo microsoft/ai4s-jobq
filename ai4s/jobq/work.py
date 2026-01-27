@@ -181,7 +181,13 @@ async def run_cmd_and_log_outputs(
             process.pid,
         )
         terminated = True
-        process.send_signal(signal.SIGTERM)
+        try:
+            process.send_signal(signal.SIGTERM)
+        except ProcessLookupError:
+            LOG.info(
+                "Could not terminate process %d, it may have already exited.",
+                process.pid,
+            )
 
     signal.signal(signal.SIGUSR1, handle_shutdown_signal)
 
