@@ -129,8 +129,6 @@ class ServiceBusJobqBackend(JobQBackend):
         if self.credential is not None:
             assert self.fqns is not None
             credential = self.credential
-            if isinstance(self.credential, AsyncTokenCredential):
-                credential = CachedTokenCredential(self.credential)
             self.client = ServiceBusClient(
                 fully_qualified_namespace=self.fqns,
                 credential=credential,  # type: ignore
