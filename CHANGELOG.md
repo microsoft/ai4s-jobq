@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+2.16.3 (2026-02-10)
+-------------------
+
+* fix(servicebus): remove token cache, seems to cause AMQP connections to drop
+
 2.16.2 (2026-01-27)
 -------------------
 
