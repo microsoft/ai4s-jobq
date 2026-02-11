@@ -369,7 +369,7 @@ class JobQ:
                         await envelope.reply(Response(is_success=True, body=ret))
                     await envelope.delete(success=True)
                 except Exception as e:
-                    LOG.warning("Failed to delete message: %s", e)
+                    LOG.warning("Failed to delete message %s: %s", envelope.id, e)
                 return True
             else:
                 # get our caching log handler

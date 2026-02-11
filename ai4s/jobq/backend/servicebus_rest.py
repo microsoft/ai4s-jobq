@@ -148,7 +148,12 @@ class ServiceBusRestClient:
     async def __aenter__(self) -> "ServiceBusRestClient":
         self._cached_credential = _CachedTokenCredential(self._credential)
         await self._cached_credential.__aenter__()
-        self._session = aiohttp.ClientSession()
+        connector = aiohttp.TCPConnector(
+            keepalive_timeout=30,
+            ttl_dns_cache=300,
+        )
+        timeout = aiohttp.ClientTimeout(total=60, connect=10, sock_read=30)
+        self._session = aiohttp.ClientSession(connector=connector, timeout=timeout)
         return self
 
     async def __aexit__(
