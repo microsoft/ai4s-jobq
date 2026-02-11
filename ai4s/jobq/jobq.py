@@ -146,10 +146,10 @@ class JobQ:
         exist_ok: bool = True,
     ) -> AsyncGenerator[T, None]:
         """Creates a new queue from a Service Bus using pure REST (no AMQP)."""
-        from .backend.servicebus_rest import RESTServiceBusClient
+        from .backend.servicebus_rest import ServiceBusRestBackend
 
         assert fqns is not None
-        async with RESTServiceBusClient(
+        async with ServiceBusRestBackend(
             queue_name=name,
             fqns=fqns,
             credential=credential,

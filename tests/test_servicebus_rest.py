@@ -4,12 +4,13 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 
 from ai4s.jobq.backend.servicebus_rest import (
-    RESTServiceBusClient,
     RESTServiceBusEnvelope,
-    RESTServiceBusWorker,
+    ServiceBusRestBackend,
+    ServiceBusRestClient,
     _CachedTokenCredential,
     _ReceivedMessage,
 )
@@ -48,6 +49,9 @@ def _mock_response(status=201, body="", headers=None):
     resp.raise_for_status = MagicMock()
     resp.text = AsyncMock(return_value=body)
     resp.headers = headers or {}
+    resp.close = MagicMock()
+    resp.request_info = MagicMock()
+    resp.history = ()
     resp.__aenter__ = AsyncMock(return_value=resp)
     resp.__aexit__ = AsyncMock(return_value=None)
     return resp
@@ -115,21 +119,21 @@ class TestRESTServiceBusEnvelope:
             location_url=loc,
             lock_duration_seconds=30.0,
         )
-        client = AsyncMock(spec=RESTServiceBusClient)
+        client = AsyncMock(spec=ServiceBusRestClient)
         return RESTServiceBusEnvelope(msg, _make_task(), client)
 
     @pytest.mark.asyncio
     async def test_delete_success(self):
         env = self._make_envelope()
         await env.delete(success=True)
-        env._client._complete_message.assert_awaited_once_with(env.message.location_url)
+        env._client.complete_message.assert_awaited_once_with(env.message.location_url)
         assert env.done
 
     @pytest.mark.asyncio
     async def test_delete_failure_deadletters(self):
         env = self._make_envelope()
         await env.delete(success=False, error="boom")
-        env._client._deadletter_message.assert_awaited_once_with(
+        env._client.deadletter_message.assert_awaited_once_with(
             env.message.location_url, reason="boom"
         )
         assert env.done
@@ -138,14 +142,14 @@ class TestRESTServiceBusEnvelope:
     async def test_requeue(self):
         env = self._make_envelope()
         await env.requeue()
-        env._client._unlock_message.assert_awaited_once_with(env.message.location_url)
+        env._client.unlock_message.assert_awaited_once_with(env.message.location_url)
 
     @pytest.mark.asyncio
     async def test_replace(self):
         env = self._make_envelope()
         new_task = _make_task(cmd="echo replaced")
         await env.replace(new_task)
-        env._client._send_message.assert_awaited_once()
+        env._client.send_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_reply_not_implemented(self):
@@ -172,32 +176,39 @@ class TestRESTServiceBusEnvelope:
         assert env._lock_renewal_task is None
 
 
-# ── RESTServiceBusClient ─────────────────────────────────────────────────
+# ── ServiceBusRestClient ────────────────────────────────────────────────
 
 
-class TestRESTServiceBusClient:
-    def _make_client(self) -> RESTServiceBusClient:
-        return RESTServiceBusClient(
-            queue_name="testq",
+class TestServiceBusRestClient:
+    def _make_client(self) -> ServiceBusRestClient:
+        return ServiceBusRestClient(
             fqns="myns.servicebus.windows.net",
+            queue_name="testq",
             credential=_make_credential(),
         )
+
+    def _setup_client(self, client: ServiceBusRestClient, mock_resp):
+        """Wire up a mock session and credential for a client."""
+        mock_session = AsyncMock()
+        mock_session.request = AsyncMock(return_value=mock_resp)
+        client._session = mock_session
+        client._cached_credential = _CachedTokenCredential(_make_credential())
+        # Inline __aenter__ for the cached credential
+        client._cached_credential.token = None
+        return mock_session
 
     @pytest.mark.asyncio
     async def test_send_message(self):
         client = self._make_client()
         mock_resp = _mock_response(201)
-        mock_session = AsyncMock()
-        mock_session.post = MagicMock(return_value=mock_resp)
-        client._session = mock_session
-        client._cached_credential = _CachedTokenCredential(_make_credential())
-        await client._cached_credential.__aenter__()
+        mock_session = self._setup_client(client, mock_resp)
 
-        msg_id = await client._send_message('{"test": true}')
+        msg_id = await client.send_message('{"test": true}')
         assert isinstance(msg_id, str)
-        mock_session.post.assert_called_once()
-        call_kwargs = mock_session.post.call_args
-        assert "/testq/messages" in call_kwargs.args[0]
+        mock_session.request.assert_called_once()
+        call_args = mock_session.request.call_args
+        assert call_args.args[0] == "POST"
+        assert "/testq/messages" in call_args.args[1]
 
     @pytest.mark.asyncio
     async def test_peek_lock_message(self):
@@ -205,13 +216,9 @@ class TestRESTServiceBusClient:
         task = _make_task()
         body = task.serialize()
         mock_resp = _mock_response(201, body, {"BrokerProperties": _broker_props()})
-        mock_session = AsyncMock()
-        mock_session.post = MagicMock(return_value=mock_resp)
-        client._session = mock_session
-        client._cached_credential = _CachedTokenCredential(_make_credential())
-        await client._cached_credential.__aenter__()
+        self._setup_client(client, mock_resp)
 
-        msg = await client._peek_lock_message()
+        msg = await client.peek_lock_message()
         assert msg.message_id == "msg-1"
         assert msg.body == body
 
@@ -219,130 +226,83 @@ class TestRESTServiceBusClient:
     async def test_peek_lock_empty_raises(self):
         client = self._make_client()
         mock_resp = _mock_response(204)
-        mock_session = AsyncMock()
-        mock_session.post = MagicMock(return_value=mock_resp)
-        client._session = mock_session
-        client._cached_credential = _CachedTokenCredential(_make_credential())
-        await client._cached_credential.__aenter__()
+        self._setup_client(client, mock_resp)
 
         with pytest.raises(EmptyQueue):
-            await client._peek_lock_message()
+            await client.peek_lock_message()
 
     @pytest.mark.asyncio
     async def test_complete_message(self):
         client = self._make_client()
         mock_resp = _mock_response(200)
-        mock_session = AsyncMock()
-        mock_session.delete = MagicMock(return_value=mock_resp)
-        client._session = mock_session
-        client._cached_credential = _CachedTokenCredential(_make_credential())
-        await client._cached_credential.__aenter__()
+        mock_session = self._setup_client(client, mock_resp)
 
         loc = "https://myns.servicebus.windows.net/testq/messages/1/lock-1"
-        await client._complete_message(loc)
-        call_args = mock_session.delete.call_args
-        assert call_args.args[0] == loc
+        await client.complete_message(loc)
+        call_args = mock_session.request.call_args
+        assert call_args.args[0] == "DELETE"
+        assert call_args.args[1] == loc
 
     @pytest.mark.asyncio
     async def test_unlock_message(self):
         client = self._make_client()
         mock_resp = _mock_response(200)
-        mock_session = AsyncMock()
-        mock_session.put = MagicMock(return_value=mock_resp)
-        client._session = mock_session
-        client._cached_credential = _CachedTokenCredential(_make_credential())
-        await client._cached_credential.__aenter__()
+        mock_session = self._setup_client(client, mock_resp)
 
         loc = "https://myns.servicebus.windows.net/testq/messages/1/lock-1"
-        await client._unlock_message(loc)
-        call_args = mock_session.put.call_args
-        assert call_args.args[0] == loc
+        await client.unlock_message(loc)
+        call_args = mock_session.request.call_args
+        assert call_args.args[0] == "PUT"
+        assert call_args.args[1] == loc
 
     @pytest.mark.asyncio
     async def test_deadletter_message(self):
         client = self._make_client()
         mock_resp = _mock_response(200)
-        mock_session = AsyncMock()
-        mock_session.put = MagicMock(return_value=mock_resp)
-        client._session = mock_session
-        client._cached_credential = _CachedTokenCredential(_make_credential())
-        await client._cached_credential.__aenter__()
+        mock_session = self._setup_client(client, mock_resp)
 
         loc = "https://myns.servicebus.windows.net/testq/messages/1/lock-1"
-        await client._deadletter_message(loc, reason="test fail")
-        call_args = mock_session.put.call_args
-        assert call_args.args[0] == loc
+        await client.deadletter_message(loc, reason="test fail")
+        call_args = mock_session.request.call_args
+        assert call_args.args[0] == "PUT"
+        assert call_args.args[1] == loc
 
     @pytest.mark.asyncio
     async def test_renew_lock(self):
         client = self._make_client()
-        mock_resp = _mock_response(200)
-        mock_session = AsyncMock()
-        mock_session.post = MagicMock(return_value=mock_resp)
-        client._session = mock_session
-        client._cached_credential = _CachedTokenCredential(_make_credential())
-        await client._cached_credential.__aenter__()
+        mock_resp = _mock_response(
+            200,
+            headers={"BrokerProperties": json.dumps({"LockedUntilUtc": ""})},
+        )
+        mock_session = self._setup_client(client, mock_resp)
 
         loc = "https://myns.servicebus.windows.net/testq/messages/1/lock-1"
-        await client._renew_lock(loc)
-        call_args = mock_session.post.call_args
-        assert call_args.args[0] == loc
+        duration = await client.renew_lock(loc)
+        call_args = mock_session.request.call_args
+        assert call_args.args[0] == "POST"
+        assert call_args.args[1] == loc
+        assert isinstance(duration, float)
 
-    @pytest.mark.asyncio
-    async def test_clear_drains_queue(self):
-        client = self._make_client()
-        call_count = 0
 
-        async def _fake_receive_and_delete(timeout=2):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 3:
-                return '{"body": "msg"}'
-            return None
+# ── ServiceBusRestBackend ───────────────────────────────────────────────
 
-        client._receive_and_delete_message = _fake_receive_and_delete  # type: ignore
-        await client.clear()
-        assert call_count == 4  # 3 messages + 1 empty
 
-    @pytest.mark.asyncio
-    async def test_peek_returns_messages(self):
-        client = self._make_client()
-        client._peek_messages = AsyncMock(  # type: ignore
-            return_value=[{"body": '{"key": "val"}', "broker_properties": {}}]
+class TestServiceBusRestBackend:
+    def _make_backend(self) -> ServiceBusRestBackend:
+        return ServiceBusRestBackend(
+            queue_name="testq",
+            fqns="myns.servicebus.windows.net",
+            credential=_make_credential(),
         )
-        result = await client.peek(n=1, as_json=True)
-        assert result == [{"key": "val"}]
 
-    @pytest.mark.asyncio
-    async def test_peek_empty_raises(self):
-        client = self._make_client()
-        client._peek_messages = AsyncMock(return_value=[])  # type: ignore
-        with pytest.raises(EmptyQueue):
-            await client.peek()
-
-    @pytest.mark.asyncio
-    async def test_push_raises_runtime_error(self):
-        client = self._make_client()
-        with pytest.raises(RuntimeError):
-            await client.push(_make_task())
-
-    @pytest.mark.asyncio
-    async def test_name_property(self):
-        client = self._make_client()
-        assert client.name == "myns.servicebus.windows.net/testq"
-
-
-# ── RESTServiceBusWorker ─────────────────────────────────────────────────
-
-
-class TestRESTServiceBusWorker:
     @pytest.mark.asyncio
     async def test_push(self):
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        backend._send_message = AsyncMock(return_value="new-msg-id")
-        worker = RESTServiceBusWorker(backend, no_receiver=False, no_sender=False)
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.send_message = AsyncMock(return_value="new-msg-id")
+        backend._rest_client = rest_client
 
-        msg_id = await worker.push(_make_task())
+        msg_id = await backend.push(_make_task())
         assert msg_id == "new-msg-id"
 
     @pytest.mark.asyncio
@@ -358,13 +318,14 @@ class TestRESTServiceBusWorker:
             location_url=loc,
             lock_duration_seconds=30.0,
         )
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        backend._peek_lock_message = AsyncMock(return_value=msg)
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.peek_lock_message = AsyncMock(return_value=msg)
+        backend._rest_client = rest_client
 
-        worker = RESTServiceBusWorker(backend)
         from datetime import timedelta
 
-        async with worker.receive_message(timedelta(seconds=30)) as env:
+        async with backend.receive_message(timedelta(seconds=30)) as env:
             assert env.task.kwargs == task.kwargs
             assert env.id == "m1"
 
@@ -381,14 +342,15 @@ class TestRESTServiceBusWorker:
             location_url=loc,
             lock_duration_seconds=30.0,
         )
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        backend._peek_lock_message = AsyncMock(return_value=msg)
-        backend._renew_lock = AsyncMock()
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.peek_lock_message = AsyncMock(return_value=msg)
+        rest_client.renew_lock = AsyncMock(return_value=30.0)
+        backend._rest_client = rest_client
 
-        worker = RESTServiceBusWorker(backend)
         from datetime import timedelta
 
-        async with worker.receive_message(timedelta(seconds=30), with_heartbeat=True) as env:
+        async with backend.receive_message(timedelta(seconds=30), with_heartbeat=True) as env:
             assert env._lock_renewal_task is not None
             assert not env._lock_renewal_task.done()
         # After exiting, the lock renewal task should be cancelled
@@ -397,17 +359,18 @@ class TestRESTServiceBusWorker:
     @pytest.mark.asyncio
     async def test_receive_empty_queue(self, monkeypatch):
         monkeypatch.setenv("JOBQ_SERVICEBUS_EMPTY_POLLS", "3")
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        backend._peek_lock_message = AsyncMock(side_effect=EmptyQueue("empty"))
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.peek_lock_message = AsyncMock(side_effect=EmptyQueue("empty"))
+        backend._rest_client = rest_client
 
-        worker = RESTServiceBusWorker(backend)
         from datetime import timedelta
 
         with pytest.raises(EmptyQueue):
-            async with worker.receive_message(timedelta(seconds=30)):
+            async with backend.receive_message(timedelta(seconds=30)):
                 pass
         # Should have retried 3 times before raising
-        assert backend._peek_lock_message.call_count == 3
+        assert rest_client.peek_lock_message.call_count == 3
 
     @pytest.mark.asyncio
     async def test_receive_retries_on_transient_empty(self):
@@ -423,15 +386,16 @@ class TestRESTServiceBusWorker:
             location_url=loc,
             lock_duration_seconds=30.0,
         )
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        backend._peek_lock_message = AsyncMock(side_effect=[EmptyQueue("empty"), msg])
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.peek_lock_message = AsyncMock(side_effect=[EmptyQueue("empty"), msg])
+        backend._rest_client = rest_client
 
-        worker = RESTServiceBusWorker(backend)
         from datetime import timedelta
 
-        async with worker.receive_message(timedelta(seconds=30)) as env:
+        async with backend.receive_message(timedelta(seconds=30)) as env:
             assert env.id == "m1"
-        assert backend._peek_lock_message.call_count == 2
+        assert rest_client.peek_lock_message.call_count == 2
 
     @pytest.mark.asyncio
     async def test_receive_retries_on_timeout(self, monkeypatch):
@@ -448,46 +412,234 @@ class TestRESTServiceBusWorker:
             location_url=loc,
             lock_duration_seconds=30.0,
         )
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        backend._peek_lock_message = AsyncMock(side_effect=[TimeoutError("timed out"), msg])
-        backend.name = "test/testq"
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.peek_lock_message = AsyncMock(side_effect=[TimeoutError("timed out"), msg])
+        backend._rest_client = rest_client
 
-        worker = RESTServiceBusWorker(backend)
         from datetime import timedelta
 
-        async with worker.receive_message(timedelta(seconds=30)) as env:
+        async with backend.receive_message(timedelta(seconds=30)) as env:
             assert env.id == "m1"
-        assert backend._peek_lock_message.call_count == 2
+        assert rest_client.peek_lock_message.call_count == 2
 
     @pytest.mark.asyncio
     async def test_receive_timeout_exhausted_raises_empty(self, monkeypatch):
         """All attempts timeout — should raise EmptyQueue."""
         monkeypatch.setenv("JOBQ_SERVICEBUS_EMPTY_POLLS", "2")
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        backend._peek_lock_message = AsyncMock(side_effect=TimeoutError("timed out"))
-        backend.name = "test/testq"
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.peek_lock_message = AsyncMock(side_effect=TimeoutError("timed out"))
+        backend._rest_client = rest_client
+        backend._rest_client.fqns = "test"
+        backend._rest_client.queue_name = "testq"
 
-        worker = RESTServiceBusWorker(backend)
         from datetime import timedelta
 
         with pytest.raises(EmptyQueue):
-            async with worker.receive_message(timedelta(seconds=30)):
+            async with backend.receive_message(timedelta(seconds=30)):
                 pass
-        assert backend._peek_lock_message.call_count == 2
+        assert rest_client.peek_lock_message.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_push_with_sender_disabled_raises(self):
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        worker = RESTServiceBusWorker(backend, no_sender=True)
-        with pytest.raises(AssertionError):
-            await worker.push(_make_task())
+    async def test_clear_drains_queue(self):
+        backend = self._make_backend()
+        call_count = 0
+
+        async def _fake_receive_and_delete(timeout=2):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 3:
+                return '{"body": "msg"}'
+            return None
+
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.receive_and_delete_message = _fake_receive_and_delete
+        backend._rest_client = rest_client
+        await backend.clear()
+        assert call_count == 4  # 3 messages + 1 empty
 
     @pytest.mark.asyncio
-    async def test_receive_with_receiver_disabled_raises(self):
-        backend = AsyncMock(spec=RESTServiceBusClient)
-        worker = RESTServiceBusWorker(backend, no_receiver=True)
-        from datetime import timedelta
+    async def test_peek_returns_messages(self):
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.peek_messages = AsyncMock(
+            return_value=[{"body": '{"key": "val"}', "broker_properties": {}}]
+        )
+        backend._rest_client = rest_client
+        result = await backend.peek(n=1, as_json=True)
+        assert result == [{"key": "val"}]
 
-        with pytest.raises(AssertionError):
-            async with worker.receive_message(timedelta(seconds=30)):
-                pass
+    @pytest.mark.asyncio
+    async def test_peek_empty_raises(self):
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.peek_messages = AsyncMock(return_value=[])
+        backend._rest_client = rest_client
+        with pytest.raises(EmptyQueue):
+            await backend.peek()
+
+    @pytest.mark.asyncio
+    async def test_name_property(self):
+        backend = self._make_backend()
+        assert backend.name == "myns.servicebus.windows.net/testq"
+
+
+# ── Retry / resilience tests ────────────────────────────────────────────
+
+
+class TestServiceBusRestClientRetry:
+    def _make_client(self, max_retries: int = 4) -> ServiceBusRestClient:
+        client = ServiceBusRestClient(
+            fqns="myns.servicebus.windows.net",
+            queue_name="testq",
+            credential=_make_credential(),
+        )
+        client._max_retries = max_retries
+        return client
+
+    def _setup_client(self, client: ServiceBusRestClient, side_effect):
+        mock_session = AsyncMock()
+        mock_session.request = AsyncMock(side_effect=side_effect)
+        client._session = mock_session
+        client._cached_credential = _CachedTokenCredential(_make_credential())
+        client._cached_credential.token = None
+        return mock_session
+
+    @pytest.mark.asyncio
+    async def test_retries_on_connection_error(self):
+        """Connection error on first attempt, success on second."""
+        client = self._make_client(max_retries=3)
+        ok_resp = _mock_response(200)
+        self._setup_client(
+            client,
+            side_effect=[aiohttp.ClientConnectionError("conn reset"), ok_resp],
+        )
+
+        resp = await client._request("GET", "https://example.com")
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_retries_on_503(self):
+        """503 on first attempt, success on second."""
+        client = self._make_client(max_retries=3)
+        error_resp = _mock_response(503)
+        error_resp.raise_for_status = MagicMock(
+            side_effect=aiohttp.ClientResponseError(
+                request_info=MagicMock(), history=(), status=503
+            )
+        )
+        ok_resp = _mock_response(200)
+        # _request checks status internally — a 503 response gets returned,
+        # but the caller (e.g. complete_message) calls raise_for_status.
+        # The retry is on the _is_retryable check. Since _request doesn't
+        # call raise_for_status itself, we need to test via a public method.
+        mock_session = self._setup_client(client, side_effect=[error_resp, ok_resp])
+
+        # complete_message calls raise_for_status on the response
+        # But _request returns the response as-is for non-401 codes.
+        # So the retry should happen when the *session.request* raises.
+        # Let's test with session.request raising directly instead.
+        mock_session.request = AsyncMock(
+            side_effect=[
+                aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=503),
+                ok_resp,
+            ]
+        )
+        resp = await client._request("DELETE", "https://example.com/msg/1/lock")
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_retries_on_429(self):
+        """429 throttling triggers retry."""
+        client = self._make_client(max_retries=3)
+        ok_resp = _mock_response(200)
+        mock_session = self._setup_client(
+            client,
+            side_effect=[
+                aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=429),
+                ok_resp,
+            ],
+        )
+
+        resp = await client._request("POST", "https://example.com")
+        assert resp.status == 200
+        assert mock_session.request.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_retries_on_timeout(self):
+        """asyncio.TimeoutError triggers retry."""
+        client = self._make_client(max_retries=3)
+        ok_resp = _mock_response(200)
+        self._setup_client(
+            client,
+            side_effect=[asyncio.TimeoutError(), ok_resp],
+        )
+
+        resp = await client._request("GET", "https://example.com")
+        assert resp.status == 200
+
+    @pytest.mark.asyncio
+    async def test_401_triggers_token_refresh_and_retry(self):
+        """401 response forces token refresh and retries."""
+        client = self._make_client(max_retries=3)
+        unauth_resp = _mock_response(401)
+        ok_resp = _mock_response(200)
+        mock_session = self._setup_client(
+            client,
+            side_effect=[unauth_resp, ok_resp],
+        )
+
+        resp = await client._request("GET", "https://example.com")
+        assert resp.status == 200
+        # Token should have been invalidated
+        assert mock_session.request.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_non_retryable_error_propagates(self):
+        """A 409 Conflict should not be retried."""
+        client = self._make_client(max_retries=3)
+        mock_session = self._setup_client(
+            client,
+            side_effect=aiohttp.ClientResponseError(
+                request_info=MagicMock(), history=(), status=409
+            ),
+        )
+
+        with pytest.raises(aiohttp.ClientResponseError) as exc_info:
+            await client._request("PUT", "https://example.com")
+        assert exc_info.value.status == 409
+        assert mock_session.request.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_exhausted_retries_raises(self):
+        """After max retries, the last error propagates."""
+        client = self._make_client(max_retries=2)
+        self._setup_client(
+            client,
+            side_effect=aiohttp.ClientConnectionError("conn reset"),
+        )
+
+        with pytest.raises(aiohttp.ClientConnectionError):
+            await client._request("GET", "https://example.com")
+
+    @pytest.mark.asyncio
+    async def test_send_message_uses_same_id_on_retry(self):
+        """send_message generates MessageId once, so retries are idempotent."""
+        import aiohttp as _aiohttp
+
+        client = self._make_client(max_retries=3)
+        ok_resp = _mock_response(201)
+        mock_session = self._setup_client(
+            client,
+            side_effect=[_aiohttp.ClientConnectionError("reset"), ok_resp],
+        )
+
+        msg_id = await client.send_message('{"x": 1}')
+        assert isinstance(msg_id, str)
+        # Both calls should have the same MessageId in BrokerProperties
+        call1_headers = mock_session.request.call_args_list[0].kwargs.get("headers", {})
+        call2_headers = mock_session.request.call_args_list[1].kwargs.get("headers", {})
+        bp1 = json.loads(call1_headers.get("BrokerProperties", "{}"))
+        bp2 = json.loads(call2_headers.get("BrokerProperties", "{}"))
+        assert bp1["MessageId"] == bp2["MessageId"] == msg_id

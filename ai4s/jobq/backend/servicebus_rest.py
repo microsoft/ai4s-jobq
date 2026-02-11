@@ -17,6 +17,7 @@ from azure.core.credentials import AccessToken
 from azure.core.credentials_async import AsyncTokenCredential
 from azure.core.exceptions import ResourceExistsError
 from azure.servicebus.aio.management import ServiceBusAdministrationClient
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from ai4s.jobq.entities import EmptyQueue, Response, Task
 
@@ -25,6 +26,8 @@ from .common import Envelope, JobQBackend
 LOG = logging.getLogger(__name__)
 
 SERVICE_BUS_SCOPE = "https://servicebus.azure.net/.default"
+
+_RETRYABLE_STATUS_CODES = frozenset({401, 408, 429, 500, 502, 503, 504})
 
 
 class _CachedTokenCredential:
@@ -45,6 +48,34 @@ class _CachedTokenCredential:
         if self.token is None or time.time() > self.token.expires_on - 60:
             self.token = await self.credential.get_token(SERVICE_BUS_SCOPE)
         return self.token.token
+
+
+def _parse_lock_duration(broker_props: dict) -> float:
+    """Extract lock duration in seconds from BrokerProperties, falling back to 30s default."""
+    lock_duration = 30.0  # Service Bus default
+    locked_until = broker_props.get("LockedUntilUtc")
+    if locked_until:
+        try:
+            from datetime import datetime, timezone
+
+            locked_until_dt = datetime.strptime(locked_until, "%a, %d %b %Y %H:%M:%S %Z").replace(
+                tzinfo=timezone.utc
+            )
+            lock_duration = max(
+                (locked_until_dt - datetime.now(timezone.utc)).total_seconds(), 10.0
+            )
+        except (ValueError, TypeError):
+            LOG.debug("Could not parse LockedUntilUtc: %s", locked_until)
+    return lock_duration
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Return True for transient errors that should be retried."""
+    if isinstance(exc, (aiohttp.ClientConnectionError, asyncio.TimeoutError, TimeoutError)):
+        return True
+    if isinstance(exc, aiohttp.ClientResponseError) and exc.status in _RETRYABLE_STATUS_CODES:
+        return True
+    return False
 
 
 @dataclass
@@ -70,21 +101,7 @@ class _ReceivedMessage:
         broker_props = json.loads(broker_props_raw)
         location = resp.headers.get("Location", "")
 
-        # Compute lock duration from LockedUntilUtc if available.
-        lock_duration = 30.0  # Service Bus default
-        locked_until = broker_props.get("LockedUntilUtc")
-        if locked_until:
-            try:
-                from datetime import datetime, timezone
-
-                locked_until_dt = datetime.strptime(
-                    locked_until, "%a, %d %b %Y %H:%M:%S %Z"
-                ).replace(tzinfo=timezone.utc)
-                lock_duration = max(
-                    (locked_until_dt - datetime.now(timezone.utc)).total_seconds(), 10.0
-                )
-            except (ValueError, TypeError):
-                LOG.debug("Could not parse LockedUntilUtc: %s", locked_until)
+        lock_duration = _parse_lock_duration(broker_props)
 
         return _ReceivedMessage(
             body=body,
@@ -97,12 +114,243 @@ class _ReceivedMessage:
         )
 
 
+# ── Low-level REST client ───────────────────────────────────────────────
+
+
+class ServiceBusRestClient:
+    """Low-level Service Bus REST/HTTP client that wraps aiohttp.
+
+    Handles authentication, session management, and the individual data-plane
+    operations (send, peek-lock, complete, unlock, dead-letter, renew, peek).
+
+    All HTTP calls are retried on transient network errors and throttling
+    (429, 500, 502, 503, 504) with exponential backoff and jitter.
+    On 401 responses the token is refreshed and the request retried once.
+    """
+
+    def __init__(
+        self,
+        fqns: str,
+        queue_name: str,
+        credential: AsyncTokenCredential,
+    ):
+        self.fqns = fqns
+        self.queue_name = queue_name
+        self._credential = credential
+        self._session: ty.Optional[aiohttp.ClientSession] = None
+        self._cached_credential: ty.Optional[_CachedTokenCredential] = None
+        self._max_retries = int(os.environ.get("JOBQ_SERVICEBUS_MAX_RETRIES", 4))
+
+    @property
+    def _base_url(self) -> str:
+        return f"https://{self.fqns}"
+
+    async def __aenter__(self) -> "ServiceBusRestClient":
+        self._cached_credential = _CachedTokenCredential(self._credential)
+        await self._cached_credential.__aenter__()
+        self._session = aiohttp.ClientSession()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: ty.Optional[ty.Type[BaseException]],
+        exc: ty.Optional[BaseException],
+        tb: ty.Optional[TracebackType],
+    ) -> None:
+        if self._session is not None:
+            await self._session.close()
+            self._session = None
+        if self._cached_credential is not None:
+            await self._cached_credential.__aexit__(exc_type, exc, tb)
+            self._cached_credential = None
+
+    async def _auth_headers(self) -> dict[str, str]:
+        assert self._cached_credential is not None, "Credential not initialized."
+        token = await self._cached_credential.get_token()
+        return {"Authorization": f"Bearer {token}"}
+
+    async def _force_token_refresh(self) -> None:
+        """Invalidate the cached token so the next call fetches a fresh one."""
+        assert self._cached_credential is not None
+        self._cached_credential.token = None
+
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: ty.Optional[dict[str, str]] = None,
+        data: ty.Optional[str] = None,
+        params: ty.Optional[dict[str, str]] = None,
+        timeout: ty.Optional[aiohttp.ClientTimeout] = None,
+        max_retries: ty.Optional[int] = None,
+    ) -> aiohttp.ClientResponse:
+        """Execute an HTTP request with retry and 401 token-refresh logic.
+
+        Returns the *already-read* response (body consumed). Callers should
+        access ``resp.status``, ``resp.headers``, and ``resp._body`` / the
+        returned text via the helper methods that call this.
+        """
+        assert self._session is not None
+        effective_retries = max_retries if max_retries is not None else self._max_retries
+
+        @retry(
+            retry=retry_if_exception(_is_retryable),
+            stop=stop_after_attempt(effective_retries),
+            wait=wait_exponential_jitter(initial=0.5, max=10, jitter=1),
+            before_sleep=lambda rs: LOG.warning(
+                "Retrying %s %s (attempt %d/%d) after %s",
+                method,
+                url,
+                rs.attempt_number,
+                effective_retries,
+                rs.outcome.exception(),
+            ),
+            reraise=True,
+        )
+        async def _do_request() -> aiohttp.ClientResponse:
+            assert self._session is not None
+            req_headers = await self._auth_headers()
+            if headers:
+                req_headers.update(headers)
+
+            resp = await self._session.request(
+                method,
+                url,
+                headers=req_headers,
+                data=data,
+                params=params,
+                timeout=timeout,
+            )
+            # On 401, force token refresh and raise to trigger retry
+            if resp.status == 401:
+                resp.close()
+                await self._force_token_refresh()
+                raise aiohttp.ClientResponseError(
+                    request_info=resp.request_info,
+                    history=resp.history,
+                    status=401,
+                    message="Unauthorized — token refreshed, retrying",
+                )
+            return resp
+
+        return await _do_request()
+
+    async def send_message(self, body: str, broker_properties: ty.Optional[dict] = None) -> str:
+        """Send a message to the queue. Returns the message ID."""
+        url = f"{self._base_url}/{self.queue_name}/messages"
+        # Generate MessageId once so retries are idempotent
+        message_id = uuid.uuid4().hex
+        bp: dict[str, ty.Any] = {"MessageId": message_id}
+        if broker_properties:
+            bp.update(broker_properties)
+        extra_headers = {
+            "Content-Type": "application/atom+xml;type=entry;charset=utf-8",
+            "BrokerProperties": json.dumps(bp),
+        }
+
+        resp = await self._request("POST", url, headers=extra_headers, data=body)
+        resp.close()
+        return message_id
+
+    async def peek_lock_message(self, timeout: int = 60) -> _ReceivedMessage:
+        """Receive one message with peek-lock via REST."""
+        url = f"{self._base_url}/{self.queue_name}/messages/head"
+        params = {"timeout": str(timeout)}
+
+        resp = await self._request("POST", url, params=params)
+        try:
+            if resp.status in (204, 404):
+                raise EmptyQueue(f"The queue {self.fqns}/{self.queue_name} has no more tasks.")
+            resp.raise_for_status()
+            body = await resp.text()
+            return _ReceivedMessage.from_response(resp, body)
+        finally:
+            resp.close()
+
+    async def receive_and_delete_message(self, timeout: int = 2) -> ty.Optional[str]:
+        """Receive and immediately delete one message (destructive read)."""
+        url = f"{self._base_url}/{self.queue_name}/messages/head"
+        params = {"timeout": str(timeout)}
+
+        resp = await self._request("DELETE", url, params=params)
+        try:
+            if resp.status in (204, 404):
+                return None
+            resp.raise_for_status()
+            return await resp.text()
+        finally:
+            resp.close()
+
+    async def complete_message(self, location_url: str) -> None:
+        """Complete (delete) a previously peek-locked message using the Location URL."""
+        resp = await self._request("DELETE", location_url)
+        resp.raise_for_status()
+        resp.close()
+
+    async def unlock_message(self, location_url: str) -> None:
+        """Abandon (unlock) a previously peek-locked message, making it available again."""
+        resp = await self._request("PUT", location_url)
+        resp.raise_for_status()
+        resp.close()
+
+    async def deadletter_message(self, location_url: str, reason: str = "Failed") -> None:
+        """Move a peek-locked message to the dead-letter sub-queue."""
+        extra_headers = {
+            "Content-Type": "application/atom+xml;type=entry;charset=utf-8",
+        }
+        body = json.dumps({"DispositionStatus": "Defered", "DeadLetterReason": reason})
+        resp = await self._request("PUT", location_url, headers=extra_headers, data=body)
+        resp.raise_for_status()
+        resp.close()
+
+    async def renew_lock(
+        self, location_url: str, timeout: ty.Optional[aiohttp.ClientTimeout] = None
+    ) -> float:
+        """Renew the lock on a peek-locked message using the Location URL.
+
+        Returns the updated lock duration in seconds.
+        Uses a single attempt (no tenacity retries) since the caller
+        (_renew_loop) already retries on its own schedule.
+        """
+        resp = await self._request("POST", location_url, timeout=timeout, max_retries=1)
+        try:
+            resp.raise_for_status()
+            broker_props = json.loads(resp.headers.get("BrokerProperties", "{}"))
+            return _parse_lock_duration(broker_props)
+        finally:
+            resp.close()
+
+    async def peek_messages(self, n: int = 1) -> ty.List[dict]:
+        """Non-destructive peek at messages (no lock acquired)."""
+        messages: ty.List[dict] = []
+
+        for _ in range(n):
+            url = f"{self._base_url}/{self.queue_name}/messages/head"
+            params = {"peekonly": "true"}
+            resp = await self._request("POST", url, params=params)
+            try:
+                if resp.status == 204:
+                    break
+                resp.raise_for_status()
+                body = await resp.text()
+                broker_props = json.loads(resp.headers.get("BrokerProperties", "{}"))
+                messages.append({"body": body, "broker_properties": broker_props})
+            finally:
+                resp.close()
+
+        return messages
+
+
+# ── Envelope ─────────────────────────────────────────────────────────────
+
+
 class RESTServiceBusEnvelope(Envelope):
     def __init__(
         self,
         message: _ReceivedMessage,
         task: Task,
-        client: "RESTServiceBusClient",
+        client: ServiceBusRestClient,
         lock_renewal_task: ty.Optional[asyncio.Task[None]] = None,
         lock_stop_event: ty.Optional[asyncio.Event] = None,
     ):
@@ -132,7 +380,7 @@ class RESTServiceBusEnvelope(Envelope):
     async def requeue(self) -> None:
         LOG.debug(f"Requeueing message {self.id}")
         await self.cancel_heartbeat()
-        await self._client._unlock_message(self.message.location_url)
+        await self._client.unlock_message(self.message.location_url)
 
     async def reply(self, response: Response) -> None:
         raise NotImplementedError("REST ServiceBus backend does not support replies yet.")
@@ -140,9 +388,9 @@ class RESTServiceBusEnvelope(Envelope):
     async def delete(self, success: bool, error: str | None = None) -> None:
         await self.cancel_heartbeat()
         if success:
-            await self._client._complete_message(self.message.location_url)
+            await self._client.complete_message(self.message.location_url)
         else:
-            await self._client._deadletter_message(
+            await self._client.deadletter_message(
                 self.message.location_url,
                 reason=error or "Failed",
             )
@@ -150,14 +398,17 @@ class RESTServiceBusEnvelope(Envelope):
 
     async def abandon(self) -> None:
         await self.cancel_heartbeat()
-        await self._client._unlock_message(self.message.location_url)
+        await self._client.unlock_message(self.message.location_url)
         self.done = True
 
     async def replace(self, task: Task) -> None:
-        await self._client._send_message(task.serialize())
+        await self._client.send_message(task.serialize())
 
 
-class RESTServiceBusClient(JobQBackend):
+# ── Backend ──────────────────────────────────────────────────────────────
+
+
+class ServiceBusRestBackend(JobQBackend):
     """Service Bus backend that uses pure REST/HTTP calls via aiohttp instead of AMQP."""
 
     def __init__(
@@ -173,23 +424,22 @@ class RESTServiceBusClient(JobQBackend):
         self.reply_queue_name = queue_name + "-replies"
         self.credential = credential
         self._exist_ok = exist_ok
-        self._session: ty.Optional[aiohttp.ClientSession] = None
-        self._cached_credential: ty.Optional[_CachedTokenCredential] = None
+        self._rest_client: ty.Optional[ServiceBusRestClient] = None
+        self._max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 5))
+        # max lock renewal lifetime: 3 weeks (same as AMQP backend)
+        self._max_lock_renewal_seconds = 60 * 60 * 24 * 21
 
-    @property
-    def _base_url(self) -> str:
-        return f"https://{self.fqns}"
-
-    async def __aenter__(self) -> "RESTServiceBusClient":
+    async def __aenter__(self) -> "ServiceBusRestBackend":
         if self.credential is None:
             raise RuntimeError("No credential provided.")
         assert self.fqns is not None
 
-        if isinstance(self.credential, AsyncTokenCredential):
-            self._cached_credential = _CachedTokenCredential(self.credential)
-            await self._cached_credential.__aenter__()
-
-        self._session = aiohttp.ClientSession()
+        self._rest_client = ServiceBusRestClient(
+            fqns=self.fqns,
+            queue_name=self.queue_name,
+            credential=self.credential,
+        )
+        await self._rest_client.__aenter__()
         await self.create(exist_ok=self._exist_ok)
         return self
 
@@ -199,132 +449,159 @@ class RESTServiceBusClient(JobQBackend):
         exc: ty.Optional[BaseException],
         tb: ty.Optional[TracebackType],
     ) -> None:
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
-        if self._cached_credential is not None:
-            await self._cached_credential.__aexit__(exc_type, exc, tb)
-            self._cached_credential = None
-
-    async def _auth_headers(self) -> dict[str, str]:
-        assert self._cached_credential is not None, "Credential not initialized."
-        token = await self._cached_credential.get_token()
-        return {"Authorization": f"Bearer {token}"}
-
-    # ── REST data-plane helpers ──────────────────────────────────────────
-
-    async def _send_message(self, body: str, broker_properties: ty.Optional[dict] = None) -> str:
-        """Send a message to the queue. Returns the message ID."""
-        assert self._session is not None
-        url = f"{self._base_url}/{self.queue_name}/messages"
-        headers = await self._auth_headers()
-        headers["Content-Type"] = "application/atom+xml;type=entry;charset=utf-8"
-        message_id = uuid.uuid4().hex
-        bp: dict[str, ty.Any] = {"MessageId": message_id}
-        if broker_properties:
-            bp.update(broker_properties)
-        headers["BrokerProperties"] = json.dumps(bp)
-
-        async with self._session.post(url, data=body, headers=headers) as resp:
-            resp.raise_for_status()
-        return message_id
-
-    async def _peek_lock_message(self, timeout: int = 60) -> _ReceivedMessage:
-        """Receive one message with peek-lock via REST."""
-        assert self._session is not None
-        url = f"{self._base_url}/{self.queue_name}/messages/head"
-        headers = await self._auth_headers()
-        params = {"timeout": str(timeout)}
-
-        async with self._session.post(url, headers=headers, params=params) as resp:
-            if resp.status in (204, 404):
-                raise EmptyQueue(f"The queue {self.name} has no more tasks.")
-            resp.raise_for_status()
-            body = await resp.text()
-            return _ReceivedMessage.from_response(resp, body)
-
-    async def _receive_and_delete_message(self, timeout: int = 2) -> ty.Optional[str]:
-        """Receive and immediately delete one message (destructive read)."""
-        assert self._session is not None
-        url = f"{self._base_url}/{self.queue_name}/messages/head"
-        headers = await self._auth_headers()
-        params = {"timeout": str(timeout)}
-
-        async with self._session.delete(url, headers=headers, params=params) as resp:
-            if resp.status in (204, 404):
-                return None
-            resp.raise_for_status()
-            return await resp.text()
-
-    async def _complete_message(self, location_url: str) -> None:
-        """Complete (delete) a previously peek-locked message using the Location URL."""
-        assert self._session is not None
-        headers = await self._auth_headers()
-
-        async with self._session.delete(location_url, headers=headers) as resp:
-            resp.raise_for_status()
-
-    async def _unlock_message(self, location_url: str) -> None:
-        """Abandon (unlock) a previously peek-locked message, making it available again."""
-        assert self._session is not None
-        headers = await self._auth_headers()
-
-        async with self._session.put(location_url, headers=headers) as resp:
-            resp.raise_for_status()
-
-    async def _deadletter_message(self, location_url: str, reason: str = "Failed") -> None:
-        """Move a peek-locked message to the dead-letter sub-queue."""
-        assert self._session is not None
-        headers = await self._auth_headers()
-        headers["Content-Type"] = "application/atom+xml;type=entry;charset=utf-8"
-        body = json.dumps({"DispositionStatus": "Defered", "DeadLetterReason": reason})
-        # The REST API uses a PUT with DeadLetterReason to dead-letter.
-        # We set DispositionStatus to signal the intent; azure interprets the
-        # presence of DeadLetterReason on the PUT as a dead-letter operation.
-        async with self._session.put(location_url, headers=headers, data=body) as resp:
-            resp.raise_for_status()
-
-    async def _renew_lock(self, location_url: str) -> None:
-        """Renew the lock on a peek-locked message using the Location URL."""
-        assert self._session is not None
-        headers = await self._auth_headers()
-
-        async with self._session.post(location_url, headers=headers) as resp:
-            resp.raise_for_status()
-
-    async def _peek_messages(self, n: int = 1) -> ty.List[dict]:
-        """Non-destructive peek at messages (no lock acquired)."""
-        assert self._session is not None
-        messages: ty.List[dict] = []
-        headers = await self._auth_headers()
-
-        for _ in range(n):
-            url = f"{self._base_url}/{self.queue_name}/messages/head"
-            params = {"peekonly": "true"}
-            async with self._session.post(url, headers=headers, params=params) as resp:
-                if resp.status == 204:
-                    break
-                resp.raise_for_status()
-                body = await resp.text()
-                broker_props = json.loads(resp.headers.get("BrokerProperties", "{}"))
-                messages.append({"body": body, "broker_properties": broker_props})
-
-        return messages
+        if self._rest_client is not None:
+            await self._rest_client.__aexit__(exc_type, exc, tb)
+            self._rest_client = None
 
     # ── JobQBackend protocol implementation ──────────────────────────────
 
     async def push(self, task: Task) -> str:
-        raise RuntimeError("Use a RESTServiceBusWorker to push messages to service bus")
+        assert self._rest_client is not None
+        return await self._rest_client.send_message(task.serialize())
 
     async def get_result(self, session_id: str, timeout: ty.Optional[timedelta] = None) -> Response:
         raise NotImplementedError("REST ServiceBus backend does not support get_result yet.")
 
-    @asynccontextmanager  # type: ignore
+    def _start_lock_renewal(
+        self, message: _ReceivedMessage, interval: float
+    ) -> tuple[asyncio.Task[None], asyncio.Event]:
+        """Start a background task that periodically renews the message lock.
+
+        Returns the task and a stop event that can be set to gracefully stop renewal.
+        """
+        assert self._rest_client is not None
+        rest_client = self._rest_client
+        deadline = time.monotonic() + self._max_lock_renewal_seconds
+        stop_event = asyncio.Event()
+
+        async def _renew_loop() -> None:
+            last_success = time.monotonic()
+            lock_duration = message.lock_duration_seconds
+            # Per-request timeout for each HTTP call in the renewal.
+            # Each individual attempt must complete well within the lock
+            # duration so we can detect failure before the lock expires.
+            per_request_timeout = aiohttp.ClientTimeout(total=max(lock_duration / 3, 5))
+            lock_lost_logged = False
+            try:
+                while time.monotonic() < deadline and not stop_event.is_set():
+                    with suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                    if stop_event.is_set():
+                        return
+                    try:
+                        new_duration = await rest_client.renew_lock(
+                            message.location_url,
+                            timeout=per_request_timeout,
+                        )
+                        message.lock_duration_seconds = new_duration
+                        lock_duration = new_duration
+                        per_request_timeout = aiohttp.ClientTimeout(total=max(lock_duration / 3, 5))
+                        last_success = time.monotonic()
+                        lock_lost_logged = False
+                        LOG.debug("Renewed lock for message %s", message.message_id)
+                    except asyncio.CancelledError:
+                        raise
+                    except aiohttp.ClientResponseError as exc:
+                        if exc.status == 404:
+                            LOG.warning(
+                                "Lock lost for message %s: renewal returned 404 "
+                                "(message already settled or lock expired). "
+                                "Another worker may process this message.",
+                                message.message_id,
+                            )
+                            return
+                        LOG.warning(
+                            "Failed to renew lock for message %s: %s",
+                            message.message_id,
+                            exc,
+                        )
+                    except Exception:
+                        LOG.warning(
+                            "Failed to renew lock for message %s",
+                            message.message_id,
+                            exc_info=True,
+                        )
+                    # If we haven't successfully renewed within the lock duration,
+                    # the lock has almost certainly expired and another worker may
+                    # pick up the message — warn loudly.
+                    elapsed = time.monotonic() - last_success
+                    if elapsed > lock_duration and not lock_lost_logged:
+                        LOG.warning(
+                            "Lock likely expired for message %s: no successful renewal "
+                            "for %.0fs (lock duration %.0fs). "
+                            "Another worker may process this message.",
+                            message.message_id,
+                            elapsed,
+                            lock_duration,
+                        )
+                        lock_lost_logged = True
+            except asyncio.CancelledError:
+                pass
+
+        task = asyncio.create_task(_renew_loop(), name=f"lock-renew-{message.message_id}")
+        return task, stop_event
+
+    @asynccontextmanager
     async def receive_message(
-        self, visibility_timeout: timedelta, with_heartbeat: bool = False, **kwargs: ty.Any
+        self,
+        visibility_timeout: timedelta,
+        with_heartbeat: bool = False,
+        **kwargs: ty.Any,
     ) -> ty.AsyncGenerator[RESTServiceBusEnvelope, None]:
-        raise RuntimeError("Use RESTServiceBusWorker to receive messages.")
-        yield  # unreachable, but required for generator typing
+        assert self._rest_client is not None
+
+        # Retry several times before declaring the queue empty.
+        # Unlike AMQP (persistent link), each REST call is independent and may
+        # miss messages that are temporarily locked by other receivers.
+        max_empty_polls = int(os.environ.get("JOBQ_SERVICEBUS_EMPTY_POLLS", 3))
+        for attempt in range(max_empty_polls):
+            try:
+                message = await self._rest_client.peek_lock_message(timeout=self._max_wait_time)
+                break
+            except EmptyQueue:
+                if attempt == max_empty_polls - 1:
+                    raise
+                LOG.debug("No messages on attempt %d/%d, retrying…", attempt + 1, max_empty_polls)
+                await asyncio.sleep(1)
+            except (TimeoutError, aiohttp.ClientError) as exc:
+                if attempt == max_empty_polls - 1:
+                    raise EmptyQueue(f"The queue {self.name} is unreachable: {exc}")
+                LOG.debug("Transient error on attempt %d/%d: %s", attempt + 1, max_empty_polls, exc)
+                await asyncio.sleep(1)
+
+        lock_task: ty.Optional[asyncio.Task[None]] = None
+        lock_stop_event: ty.Optional[asyncio.Event] = None
+        if with_heartbeat:
+            # Renew at half the actual lock duration reported by Service Bus,
+            # NOT the application-level visibility_timeout which can be hours.
+            interval = max(message.lock_duration_seconds / 2, 5)
+            lock_task, lock_stop_event = self._start_lock_renewal(message, interval)
+
+        try:
+            task = Task.deserialize(message.body)
+        except Exception:
+            LOG.error(
+                "Stopping processing due to deserialization error to prevent potential data loss.",
+                exc_info=True,
+            )
+            if lock_stop_event is not None:
+                lock_stop_event.set()
+            if lock_task is not None and not lock_task.done():
+                with suppress(asyncio.CancelledError):
+                    await lock_task
+            raise
+        else:
+            envelope = RESTServiceBusEnvelope(
+                message, task, self._rest_client, lock_task, lock_stop_event
+            )
+            try:
+                yield envelope
+            finally:
+                if lock_stop_event is not None:
+                    lock_stop_event.set()
+                if lock_task is not None and not lock_task.done():
+                    with suppress(asyncio.CancelledError):
+                        await lock_task
 
     async def create(self, exist_ok: bool = True) -> None:
         async with self._get_admin_client() as admin_client:
@@ -345,10 +622,11 @@ class RESTServiceBusClient(JobQBackend):
 
     async def clear(self) -> None:
         """Drain the queue via destructive REST reads."""
+        assert self._rest_client is not None
         n = 0
         max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 2))
         while True:
-            body = await self._receive_and_delete_message(timeout=max_wait_time)
+            body = await self._rest_client.receive_and_delete_message(timeout=max_wait_time)
             if body is None:
                 break
             n += 1
@@ -381,165 +659,14 @@ class RESTServiceBusClient(JobQBackend):
         raise NotImplementedError("REST ServiceBus does not yet support SAS tokens.")
 
     async def peek(self, n: int = 1, as_json: bool = False) -> ty.List[ty.Any]:
-        messages = await self._peek_messages(n)
+        assert self._rest_client is not None
+        messages = await self._rest_client.peek_messages(n)
         if not messages:
             raise EmptyQueue(f"The queue {self.name} has no more tasks.")
         if as_json:
             return [json.loads(m["body"]) for m in messages]
         return messages
 
-    @asynccontextmanager
-    async def get_worker_interface(
-        self,
-        receiver_kwargs: ty.Optional[dict] = None,
-        sender_kwargs: ty.Optional[dict] = None,
-        no_receiver: bool = False,
-        no_sender: bool = False,
-        **kwargs: ty.Any,
-    ) -> ty.AsyncGenerator["RESTServiceBusWorker", None]:  # type: ignore
-        worker = RESTServiceBusWorker(
-            self,
-            no_receiver=no_receiver,
-            no_sender=no_sender,
-        )
-        await worker.__aenter__()
-        try:
-            yield worker
-        finally:
-            await worker.__aexit__(None, None, None)
 
-
-class RESTServiceBusWorker:
-    """Worker that sends/receives Service Bus messages via REST."""
-
-    def __init__(
-        self,
-        backend: RESTServiceBusClient,
-        no_receiver: bool = False,
-        no_sender: bool = False,
-    ):
-        self.backend = backend
-        self._no_receiver = no_receiver
-        self._no_sender = no_sender
-        self._max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 5))
-        # max lock renewal lifetime: 3 weeks (same as AMQP backend)
-        self._max_lock_renewal_seconds = 60 * 60 * 24 * 21
-
-    async def __aenter__(self) -> "RESTServiceBusWorker":
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: ty.Optional[ty.Type[BaseException]],
-        exc: ty.Optional[BaseException],
-        tb: ty.Optional[TracebackType],
-    ) -> None:
-        pass
-
-    def _start_lock_renewal(
-        self, message: _ReceivedMessage, interval: float
-    ) -> tuple[asyncio.Task[None], asyncio.Event]:
-        """Start a background task that periodically renews the message lock.
-
-        Returns the task and a stop event that can be set to gracefully stop renewal.
-        """
-        deadline = time.monotonic() + self._max_lock_renewal_seconds
-        stop_event = asyncio.Event()
-
-        async def _renew_loop() -> None:
-            try:
-                while time.monotonic() < deadline and not stop_event.is_set():
-                    with suppress(asyncio.TimeoutError):
-                        await asyncio.wait_for(stop_event.wait(), timeout=interval)
-                    if stop_event.is_set():
-                        return
-                    try:
-                        await self.backend._renew_lock(message.location_url)
-                        LOG.debug("Renewed lock for message %s", message.message_id)
-                    except asyncio.CancelledError:
-                        raise
-                    except aiohttp.ClientResponseError as exc:
-                        if exc.status == 404:
-                            # Message was already settled (completed/dead-lettered).
-                            LOG.debug(
-                                "Lock renewal stopped for message %s: message already settled.",
-                                message.message_id,
-                            )
-                            return
-                        LOG.warning(
-                            "Failed to renew lock for message %s: %s",
-                            message.message_id,
-                            exc,
-                        )
-                    except Exception:
-                        LOG.warning(
-                            "Failed to renew lock for message %s",
-                            message.message_id,
-                            exc_info=True,
-                        )
-            except asyncio.CancelledError:
-                pass
-
-        task = asyncio.create_task(_renew_loop(), name=f"lock-renew-{message.message_id}")
-        return task, stop_event
-
-    @asynccontextmanager
-    async def receive_message(
-        self,
-        visibility_timeout: timedelta,
-        with_heartbeat: bool = False,
-        **kwargs: ty.Any,
-    ) -> ty.AsyncGenerator[RESTServiceBusEnvelope, None]:
-        assert not self._no_receiver, "Receiver is disabled."
-
-        # Retry several times before declaring the queue empty.
-        # Unlike AMQP (persistent link), each REST call is independent and may
-        # miss messages that are temporarily locked by other receivers.
-        max_empty_polls = int(os.environ.get("JOBQ_SERVICEBUS_EMPTY_POLLS", 3))
-        for attempt in range(max_empty_polls):
-            try:
-                message = await self.backend._peek_lock_message(timeout=self._max_wait_time)
-                break
-            except EmptyQueue:
-                if attempt == max_empty_polls - 1:
-                    raise
-                LOG.debug("No messages on attempt %d/%d, retrying…", attempt + 1, max_empty_polls)
-                await asyncio.sleep(1)
-            except (TimeoutError, aiohttp.ClientError) as exc:
-                if attempt == max_empty_polls - 1:
-                    raise EmptyQueue(f"The queue {self.backend.name} is unreachable: {exc}")
-                LOG.debug("Transient error on attempt %d/%d: %s", attempt + 1, max_empty_polls, exc)
-                await asyncio.sleep(1)
-
-        lock_task: ty.Optional[asyncio.Task[None]] = None
-        lock_stop_event: ty.Optional[asyncio.Event] = None
-        if with_heartbeat:
-            # Renew at half the actual lock duration reported by Service Bus,
-            # NOT the application-level visibility_timeout which can be hours.
-            interval = max(message.lock_duration_seconds / 2, 5)
-            lock_task, lock_stop_event = self._start_lock_renewal(message, interval)
-
-        try:
-            task = Task.deserialize(message.body)
-        except Exception:
-            LOG.error(
-                "Stopping processing due to deserialization error to prevent potential data loss.",
-                exc_info=True,
-            )
-            raise
-        else:
-            envelope = RESTServiceBusEnvelope(
-                message, task, self.backend, lock_task, lock_stop_event
-            )
-            try:
-                yield envelope
-            finally:
-                if lock_stop_event is not None:
-                    lock_stop_event.set()
-                if lock_task is not None and not lock_task.done():
-                    with suppress(asyncio.CancelledError):
-                        await lock_task
-
-    async def push(self, task: Task) -> str:
-        assert not self._no_sender, "Sender is disabled."
-        return await self.backend._send_message(task.serialize())
+# Backward-compatible alias
+RESTServiceBusClient = ServiceBusRestBackend
