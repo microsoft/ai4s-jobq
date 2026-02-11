@@ -379,14 +379,12 @@ class RESTServiceBusEnvelope(Envelope):
 
     async def requeue(self) -> None:
         LOG.debug(f"Requeueing message {self.id}")
-        await self.cancel_heartbeat()
         await self._client.unlock_message(self.message.location_url)
 
     async def reply(self, response: Response) -> None:
         raise NotImplementedError("REST ServiceBus backend does not support replies yet.")
 
     async def delete(self, success: bool, error: str | None = None) -> None:
-        await self.cancel_heartbeat()
         if success:
             await self._client.complete_message(self.message.location_url)
         else:
@@ -395,11 +393,14 @@ class RESTServiceBusEnvelope(Envelope):
                 reason=error or "Failed",
             )
         self.done = True
+        if self._lock_stop_event is not None:
+            self._lock_stop_event.set()
 
     async def abandon(self) -> None:
-        await self.cancel_heartbeat()
         await self._client.unlock_message(self.message.location_url)
         self.done = True
+        if self._lock_stop_event is not None:
+            self._lock_stop_event.set()
 
     async def replace(self, task: Task) -> None:
         await self._client.send_message(task.serialize())
@@ -503,12 +504,22 @@ class ServiceBusRestBackend(JobQBackend):
                         raise
                     except aiohttp.ClientResponseError as exc:
                         if exc.status == 404:
-                            LOG.warning(
-                                "Lock lost for message %s: renewal returned 404 "
-                                "(message already settled or lock expired). "
-                                "Another worker may process this message.",
-                                message.message_id,
-                            )
+                            if stop_event.is_set():
+                                # Message was settled (completed/abandoned) while
+                                # this renewal was in-flight — perfectly normal.
+                                LOG.debug(
+                                    "Lock renewal 404 for message %s after settlement.",
+                                    message.message_id,
+                                )
+                            else:
+                                LOG.warning(
+                                    "Lock lost for message %s: renewal returned 404 "
+                                    "(message already settled or lock expired). "
+                                    "Another worker may process this message.",
+                                    message.message_id,
+                                )
+                            return
+                        if stop_event.is_set():
                             return
                         LOG.warning(
                             "Failed to renew lock for message %s: %s",
@@ -516,6 +527,8 @@ class ServiceBusRestBackend(JobQBackend):
                             exc,
                         )
                     except Exception:
+                        if stop_event.is_set():
+                            return
                         LOG.warning(
                             "Failed to renew lock for message %s",
                             message.message_id,
