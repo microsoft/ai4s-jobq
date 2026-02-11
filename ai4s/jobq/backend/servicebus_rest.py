@@ -624,14 +624,20 @@ class ServiceBusRestBackend(JobQBackend):
     async def create(self, exist_ok: bool = True) -> None:
         async with self._get_admin_client() as admin_client:
             try:
-                await admin_client.create_queue(queue_name=self.queue_name, requires_session=False)
+                await admin_client.create_queue(
+                    queue_name=self.queue_name,
+                    requires_session=False,
+                    lock_duration=timedelta(minutes=5),
+                )
                 LOG.info(f"Created queue {self.queue_name}")
             except ResourceExistsError:
                 if not exist_ok:
                     raise
             try:
                 await admin_client.create_queue(
-                    queue_name=self.reply_queue_name, requires_session=True
+                    queue_name=self.reply_queue_name,
+                    requires_session=True,
+                    lock_duration=timedelta(minutes=5),
                 )
                 LOG.info(f"Created queue {self.reply_queue_name}")
             except ResourceExistsError:
