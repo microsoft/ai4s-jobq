@@ -55,9 +55,6 @@ dev = [
 workforce = [
     "azure-ai-ml", "pydantic",
 ]
-servicebus = [
-  "azure-servicebus"
-]
 track = [
   "dash_bootstrap_components",
   "dash",

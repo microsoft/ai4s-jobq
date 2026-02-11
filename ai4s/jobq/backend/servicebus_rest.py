@@ -409,7 +409,7 @@ class RESTServiceBusEnvelope(Envelope):
 
 
 class ServiceBusRestBackend(JobQBackend):
-    """Service Bus backend that uses pure REST/HTTP calls via aiohttp instead of AMQP."""
+    """Service Bus backend that uses pure REST/HTTP calls via aiohttp."""
 
     def __init__(
         self,
@@ -426,7 +426,7 @@ class ServiceBusRestBackend(JobQBackend):
         self._exist_ok = exist_ok
         self._rest_client: ty.Optional[ServiceBusRestClient] = None
         self._max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 5))
-        # max lock renewal lifetime: 3 weeks (same as AMQP backend)
+        # max lock renewal lifetime: 3 weeks
         self._max_lock_renewal_seconds = 60 * 60 * 24 * 21
 
     async def __aenter__(self) -> "ServiceBusRestBackend":
@@ -551,8 +551,8 @@ class ServiceBusRestBackend(JobQBackend):
         assert self._rest_client is not None
 
         # Retry several times before declaring the queue empty.
-        # Unlike AMQP (persistent link), each REST call is independent and may
-        # miss messages that are temporarily locked by other receivers.
+        # Each REST call is independent and may miss messages that are
+        # temporarily locked by other receivers.
         max_empty_polls = int(os.environ.get("JOBQ_SERVICEBUS_EMPTY_POLLS", 3))
         for attempt in range(max_empty_polls):
             try:
