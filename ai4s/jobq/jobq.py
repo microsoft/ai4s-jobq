@@ -114,7 +114,7 @@ class JobQ:
 
     @classmethod
     @asynccontextmanager
-    async def from_service_bus(
+    async def from_service_bus_legacy(
         cls: Type[T],
         name: str,
         *,
@@ -127,6 +127,29 @@ class JobQ:
 
         assert fqns is not None
         async with ServiceBusJobqBackend(
+            queue_name=name,
+            fqns=fqns,
+            credential=credential,
+            exist_ok=exist_ok,
+        ) as backend:
+            str_credential = credential if isinstance(credential, str) else None
+            yield cls(backend, credential=str_credential)
+
+    @classmethod
+    @asynccontextmanager
+    async def from_service_bus(
+        cls: Type[T],
+        name: str,
+        *,
+        fqns: Optional[str] = None,
+        credential: Optional[Any] = None,
+        exist_ok: bool = True,
+    ) -> AsyncGenerator[T, None]:
+        """Creates a new queue from a Service Bus using pure REST (no AMQP)."""
+        from .backend.servicebus_rest import RESTServiceBusClient
+
+        assert fqns is not None
+        async with RESTServiceBusClient(
             queue_name=name,
             fqns=fqns,
             credential=credential,
