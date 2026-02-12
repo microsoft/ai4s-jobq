@@ -64,7 +64,8 @@ async with get_token_credential() as cred:
     )
 ```
 
-
+To use Azure Service Bus instead of Storage Queues, swap the constructor.
+The rest of the API (``batch_enqueue``, ``launch_workers``, etc.) stays the same:
 
 ```python
 from ai4s.auth import get_token_credential

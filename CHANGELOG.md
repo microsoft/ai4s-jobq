@@ -6,9 +6,23 @@ CHANGELOG
 
 Features:
 
+* **Service Bus backend rewritten from AMQP to REST.** The previous AMQP-based
+  backend (`servicebus.py`) has been replaced with a new HTTP/REST implementation
+  (`servicebus_rest.py`) for improved stability. The new backend uses `aiohttp`
+  with `tenacity` for automatic retries of transient errors.
+
 * When a message lock is lost (Service Bus 404 or Storage Queue pop receipt mismatch),
   the running task is now automatically cancelled and the worker moves on without
   settling the message, avoiding duplicate processing.
+
+* Lock-loss detection added to the Storage Queue backend: heartbeat renewal failures
+  with HTTP 400/404 now signal lock loss via the new `lock_lost_event` on `Envelope`.
+
+Breaking changes:
+
+* The `[servicebus]` pip extras group has been removed; `azure-servicebus` is now
+  a core dependency.
+* `tenacity` is now a core dependency.
 
 Fixes:
 

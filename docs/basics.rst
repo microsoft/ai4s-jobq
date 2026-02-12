@@ -1,6 +1,22 @@
 Basic Operation
 ===============
 
+Choosing a backend
+------------------
+
+``ai4s.jobq`` supports two Azure queue backends:
+
+- **Azure Storage Queue** — simple and cheap. Good for most workloads. Requires a storage account.
+- **Azure Service Bus** — offers built-in `dead-letter queues <https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-dead-letter-queues>`_
+  and non-destructive message peeking, making it easier to inspect in-flight
+  and failed tasks. Recommended when observability into queue state matters.
+
+Both backends are included in the base install — no extras required.
+
+
+Queue specification
+-------------------
+
 A queue is specified by a storage account and a queue name:
 
 .. prompt:: bash $ auto
@@ -31,8 +47,16 @@ Pull the first-pushed job from the queue and execute it.
 - If there are no jobs left, ``ai4s-jobq`` exits with code 0. If the worker is running on Azure ML, the job would succeed.
 - If the job fails, it is put back in the queue, until the max number of retries is exceeded.
 
-If a worker dies while processing a task, the task will reappear at the end of
-the queue after ``--visibility-timeout``. (This functionality is provided by Azure queues. For Service Bus queues, the default visibility cannot be changed.)
+If a worker dies while processing a task, the task will reappear in the queue
+after ``--visibility-timeout``. For Service Bus queues, tasks reappear
+after the lock expires (this is a queue-level setting, queues created by
+ai4s-jobq have a 5 minutes lock duration).
+
+If the message lock is lost while a task is still running (e.g. due to a
+network interruption that prevents lock renewal), the worker automatically
+cancels the in-progress task and moves on without settling the message.
+The message becomes available for another worker to pick up, avoiding
+duplicate processing.
 
 When pushing commands, you can also:
 - specify environment variables, eg. ``-e AMLT_OUTPUT_DIR=/mnt/default/some/dir``
