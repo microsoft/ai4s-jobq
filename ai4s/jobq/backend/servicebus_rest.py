@@ -488,57 +488,88 @@ class ServiceBusRestBackend(JobQBackend):
             # duration so we can detect failure before the lock expires.
             per_request_timeout = aiohttp.ClientTimeout(total=max(lock_duration / 3, 5))
             lock_lost_logged = False
+            # Maximum immediate retries on transient failure before falling
+            # back to the normal sleep interval.  With short lock durations
+            # (e.g. 30 s) a single missed renewal can cause lock loss, so we
+            # retry quickly a few times before giving up for this cycle.
+            max_fast_retries = 2
             try:
                 while time.monotonic() < deadline and not stop_event.is_set():
                     with suppress(asyncio.TimeoutError):
                         await asyncio.wait_for(stop_event.wait(), timeout=interval)
                     if stop_event.is_set():
                         return
-                    try:
-                        new_duration = await rest_client.renew_lock(
-                            message.location_url,
-                            timeout=per_request_timeout,
-                        )
-                        message.lock_duration_seconds = new_duration
-                        lock_duration = new_duration
-                        per_request_timeout = aiohttp.ClientTimeout(total=max(lock_duration / 3, 5))
-                        last_success = time.monotonic()
-                        lock_lost_logged = False
-                        LOG.debug("Renewed lock for message %s", message.message_id)
-                    except asyncio.CancelledError:
-                        raise
-                    except aiohttp.ClientResponseError as exc:
-                        if exc.status == 404:
+
+                    for retry_attempt in range(1 + max_fast_retries):
+                        try:
+                            new_duration = await rest_client.renew_lock(
+                                message.location_url,
+                                timeout=per_request_timeout,
+                            )
+                            message.lock_duration_seconds = new_duration
+                            lock_duration = new_duration
+                            per_request_timeout = aiohttp.ClientTimeout(
+                                total=max(lock_duration / 3, 5)
+                            )
+                            last_success = time.monotonic()
+                            lock_lost_logged = False
+                            LOG.debug("Renewed lock for message %s", message.message_id)
+                            break  # success — exit retry loop
+                        except asyncio.CancelledError:
+                            raise
+                        except aiohttp.ClientResponseError as exc:
+                            if exc.status == 404:
+                                if stop_event.is_set():
+                                    LOG.debug(
+                                        "Lock renewal 404 for message %s after settlement.",
+                                        message.message_id,
+                                    )
+                                else:
+                                    LOG.warning(
+                                        "Lock lost for message %s: renewal returned 404 "
+                                        "(message already settled or lock expired). "
+                                        "Another worker may process this message.",
+                                        message.message_id,
+                                    )
+                                return
                             if stop_event.is_set():
-                                # Message was settled (completed/abandoned) while
-                                # this renewal was in-flight — perfectly normal.
+                                return
+                            if retry_attempt < max_fast_retries:
                                 LOG.debug(
-                                    "Lock renewal 404 for message %s after settlement.",
+                                    "Transient renewal failure for message %s "
+                                    "(attempt %d/%d): %s — retrying immediately",
                                     message.message_id,
+                                    retry_attempt + 1,
+                                    1 + max_fast_retries,
+                                    exc,
                                 )
-                            else:
-                                LOG.warning(
-                                    "Lock lost for message %s: renewal returned 404 "
-                                    "(message already settled or lock expired). "
-                                    "Another worker may process this message.",
+                                await asyncio.sleep(min(2**retry_attempt, 5))
+                                continue
+                            LOG.warning(
+                                "Failed to renew lock for message %s: %s",
+                                message.message_id,
+                                exc,
+                            )
+                        except Exception:
+                            if stop_event.is_set():
+                                return
+                            if retry_attempt < max_fast_retries:
+                                LOG.debug(
+                                    "Transient renewal failure for message %s "
+                                    "(attempt %d/%d) — retrying immediately",
                                     message.message_id,
+                                    retry_attempt + 1,
+                                    1 + max_fast_retries,
+                                    exc_info=True,
                                 )
-                            return
-                        if stop_event.is_set():
-                            return
-                        LOG.warning(
-                            "Failed to renew lock for message %s: %s",
-                            message.message_id,
-                            exc,
-                        )
-                    except Exception:
-                        if stop_event.is_set():
-                            return
-                        LOG.warning(
-                            "Failed to renew lock for message %s",
-                            message.message_id,
-                            exc_info=True,
-                        )
+                                await asyncio.sleep(min(2**retry_attempt, 5))
+                                continue
+                            LOG.warning(
+                                "Failed to renew lock for message %s",
+                                message.message_id,
+                                exc_info=True,
+                            )
+
                     # If we haven't successfully renewed within the lock duration,
                     # the lock has almost certainly expired and another worker may
                     # pick up the message — warn loudly.
