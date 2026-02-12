@@ -1,6 +1,19 @@
 CHANGELOG
 =========
 
+2.17.0 (2026-02-12)
+-------------------
+
+Features:
+
+* When a message lock is lost (Service Bus 404 or Storage Queue pop receipt mismatch),
+  the running task is now automatically cancelled and the worker moves on without
+  settling the message, avoiding duplicate processing.
+
+Fixes:
+
+* fix ANSI escape codes breaking subprocess output assertions in CLI tests
+
 2.16.2 (2026-01-27)
 -------------------
 
