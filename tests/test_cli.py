@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
 
+import click
 import pytest
 import yaml
 from asyncclick.testing import CliRunner
@@ -297,6 +298,7 @@ async def test_signal_handling_servicebus(mocker, tmp_path, sb_namespace, sb_que
         start = datetime.now()
         proc.send_signal(signal.SIGINT)
         stdout, stderr = proc.communicate()
+        stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
     assert "bash got signal-A" in (stderr + stdout)
@@ -349,6 +351,7 @@ async def test_signal_handling(mocker, tmp_path, queue_name) -> None:
         start = datetime.now()
         proc.send_signal(signal.SIGINT)
         stdout, stderr = proc.communicate()
+        stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
     assert "bash got signal-A" in (stderr + stdout)
@@ -412,6 +415,7 @@ async def test_signal_handling_resume(mocker, tmp_path, queue_name) -> None:
         start = datetime.now()
         proc.send_signal(signal.SIGTERM)
         stdout, stderr = proc.communicate()
+        stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
     assert "No preemption occurred within 2 seconds." in re.sub(r"\s+", " ", stdout), (
@@ -523,6 +527,7 @@ async def test_signal1_graceful_shutdown_from_servicebus_handled_correctly(
             signal_to_send=signal.SIGUSR1,
         )
         stdout, stderr = proc.communicate()
+        stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
     # we expect task a to finish, and task b should not be started
@@ -604,6 +609,7 @@ async def test_signal2_graceful_shutdown_from_servicebus_handled_correctly(
             signal_to_send=signal.SIGUSR2,
         )
         stdout, stderr = proc.communicate()
+        stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
     # we expect task a to be interrupted and requeued, and task b should not be started
@@ -661,6 +667,7 @@ async def test_empty_queue_finishes_successfully(mocker, queue_name) -> None:
     ) as proc:
         start = datetime.now()
         stdout, stderr = proc.communicate()
+        stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
     # make sure the worker stated and exists

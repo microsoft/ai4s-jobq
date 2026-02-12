@@ -329,14 +329,26 @@ class JobQ:
                 if _is_async_callable(command_callback):
                     callback_task = asyncio.ensure_future(command_callback(**kwargs))  # type: ignore
                     lock_lost_task = asyncio.ensure_future(envelope.lock_lost_event.wait())
-                    done, pending = await asyncio.wait(
-                        [callback_task, lock_lost_task],
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
+                    try:
+                        done, pending = await asyncio.wait(
+                            [callback_task, lock_lost_task],
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                    except asyncio.CancelledError:
+                        # Outer task was cancelled (e.g. worker shutdown) —
+                        # propagate cancellation to the sub-tasks, then await
+                        # the callback so it can clean up (e.g. SIGTERM
+                        # subprocesses).  Whatever the callback raises
+                        # (WorkerCanceled, CancelledError, etc.) propagates.
+                        lock_lost_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await lock_lost_task
+                        callback_task.cancel()
+                        await callback_task
                     if lock_lost_task in done:
                         # Lock was lost — cancel the callback and walk away.
                         callback_task.cancel()
-                        with suppress(asyncio.CancelledError):
+                        with suppress(asyncio.CancelledError, WorkerCanceled, Exception):
                             await callback_task
                         lock_lost = True
                     else:
