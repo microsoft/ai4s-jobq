@@ -356,6 +356,7 @@ class JobQ:
                         with suppress(asyncio.CancelledError):
                             await lock_lost_task
                         ret = callback_task.result()
+                        lock_lost = envelope.lock_lost_event.is_set()
                 else:
                     LOG.warning(
                         "Callback does not seem to be async. This is problematic if you're using heartbeats and/or multiple workers."
