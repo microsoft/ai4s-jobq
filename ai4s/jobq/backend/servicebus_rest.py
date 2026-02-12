@@ -525,11 +525,13 @@ class ServiceBusRestBackend(JobQBackend):
                                         message.message_id,
                                     )
                                 else:
+                                    expired_ago = time.monotonic() - last_success - lock_duration
                                     LOG.warning(
                                         "Lock lost for message %s: renewal returned 404 "
-                                        "(message already settled or lock expired). "
+                                        "(message already settled or lock expired ~%.0fs ago). "
                                         "Another worker may process this message.",
                                         message.message_id,
+                                        max(expired_ago, 0),
                                     )
                                 return
                             if stop_event.is_set():
@@ -560,14 +562,12 @@ class ServiceBusRestBackend(JobQBackend):
                                     message.message_id,
                                     retry_attempt + 1,
                                     1 + max_fast_retries,
-                                    exc_info=True,
                                 )
                                 await asyncio.sleep(min(2**retry_attempt, 5))
                                 continue
                             LOG.warning(
                                 "Failed to renew lock for message %s",
                                 message.message_id,
-                                exc_info=True,
                             )
 
                     # If we haven't successfully renewed within the lock duration,
@@ -575,13 +575,15 @@ class ServiceBusRestBackend(JobQBackend):
                     # pick up the message — warn loudly.
                     elapsed = time.monotonic() - last_success
                     if elapsed > lock_duration and not lock_lost_logged:
+                        expired_ago = elapsed - lock_duration
                         LOG.warning(
                             "Lock likely expired for message %s: no successful renewal "
-                            "for %.0fs (lock duration %.0fs). "
+                            "for %.0fs (lock duration %.0fs, expired ~%.0fs ago). "
                             "Another worker may process this message.",
                             message.message_id,
                             elapsed,
                             lock_duration,
+                            expired_ago,
                         )
                         lock_lost_logged = True
             except asyncio.CancelledError:
