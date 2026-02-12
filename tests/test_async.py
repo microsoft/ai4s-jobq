@@ -1,7 +1,6 @@
 import asyncio
 from datetime import timedelta
 
-import azure.core.exceptions
 import pytest
 
 from ai4s.jobq.entities import EmptyQueue
@@ -33,8 +32,6 @@ async def test_async(mocker, async_queue, azurite_connstr):
 async def test_heartbeat_lock_lost(async_queue, azurite_connstr):
     """When the heartbeat detects that the lock is lost, the task should be cancelled
     and the worker should return False without trying to settle the message."""
-    from unittest.mock import MagicMock
-
     callback_started = asyncio.Event()
     callback_cancelled = asyncio.Event()
 
@@ -58,22 +55,15 @@ async def test_heartbeat_lock_lost(async_queue, azurite_connstr):
 
         call_count = 0
 
-        async def failing_update(*args, **kwargs):
+        async def sabotaged_update(message, *args, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count >= 2:
-                # Simulate a pop-receipt mismatch (lock lost).
-                resp = MagicMock()
-                resp.status_code = 400
-                resp.headers = {}
-                resp.content_type = None
-                resp.text.return_value = "PopReceiptMismatch"
-                raise azure.core.exceptions.HttpResponseError(
-                    message="PopReceiptMismatch", response=resp
-                )
-            return await original_update(*args, **kwargs)
+                # Corrupt the pop receipt so the real Azure API rejects it.
+                kwargs["pop_receipt"] = "invalid-pop-receipt"
+            return await original_update(message, *args, **kwargs)
 
-        backend.queue_client.update_message = failing_update
+        backend.queue_client.update_message = sabotaged_update
 
         success = await q_worker.pull_and_execute(
             callback, visibility_timeout=timedelta(seconds=2), with_heartbeat=True
