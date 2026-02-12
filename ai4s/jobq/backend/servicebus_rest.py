@@ -525,13 +525,16 @@ class ServiceBusRestBackend(JobQBackend):
                                         message.message_id,
                                     )
                                 else:
-                                    expired_ago = time.monotonic() - last_success - lock_duration
+                                    since_last_renewal = time.monotonic() - last_success
                                     LOG.warning(
                                         "Lock lost for message %s: renewal returned 404 "
-                                        "(message already settled or lock expired ~%.0fs ago). "
+                                        "(message already settled or lock expired). "
+                                        "Last successful renewal was %.0fs ago "
+                                        "(lock duration %.0fs). "
                                         "Another worker may process this message.",
                                         message.message_id,
-                                        max(expired_ago, 0),
+                                        since_last_renewal,
+                                        lock_duration,
                                     )
                                 return
                             if stop_event.is_set():
@@ -619,6 +622,14 @@ class ServiceBusRestBackend(JobQBackend):
                     raise EmptyQueue(f"The queue {self.name} is unreachable: {exc}")
                 LOG.debug("Transient error on attempt %d/%d: %s", attempt + 1, max_empty_polls, exc)
                 await asyncio.sleep(1)
+
+        if message.delivery_count > 1:
+            LOG.warning(
+                "Message %s has been delivered %d times "
+                "(previous lock likely expired before processing finished).",
+                message.message_id,
+                message.delivery_count,
+            )
 
         lock_task: ty.Optional[asyncio.Task[None]] = None
         lock_stop_event: ty.Optional[asyncio.Event] = None
