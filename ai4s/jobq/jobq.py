@@ -6,7 +6,7 @@ import os
 import textwrap
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from datetime import timedelta
 from functools import partial
@@ -320,18 +320,36 @@ class JobQ:
             start_time = time.time()
             exc = None
             ret: Optional[CallbackReturnType] = None
+            lock_lost = False
             try:
                 if signature(command_callback).parameters.get("_job_id") is not None:
                     kwargs["_job_id"] = task.id
                 if signature(command_callback).parameters.get("_worker_id") is not None:
                     kwargs["_worker_id"] = worker_id
                 if _is_async_callable(command_callback):
-                    ret = await command_callback(**kwargs)  # type: ignore
+                    callback_task = asyncio.ensure_future(command_callback(**kwargs))  # type: ignore
+                    lock_lost_task = asyncio.ensure_future(envelope.lock_lost_event.wait())
+                    done, pending = await asyncio.wait(
+                        [callback_task, lock_lost_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if lock_lost_task in done:
+                        # Lock was lost — cancel the callback and walk away.
+                        callback_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await callback_task
+                        lock_lost = True
+                    else:
+                        lock_lost_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await lock_lost_task
+                        ret = callback_task.result()
                 else:
                     LOG.warning(
                         "Callback does not seem to be async. This is problematic if you're using heartbeats and/or multiple workers."
                     )
                     ret = command_callback(**kwargs)  # type: ignore
+                    lock_lost = envelope.lock_lost_event.is_set()
                 execution_was_succesful = True
             except WorkerCanceled:
                 await envelope.cancel_heartbeat()
@@ -349,11 +367,25 @@ class JobQ:
             except Exception as e:
                 exc = e  # this roundabout way makes mypy happy.
                 execution_was_succesful = False
+                lock_lost = envelope.lock_lost_event.is_set()
                 await envelope.cancel_heartbeat()
             else:
                 await envelope.cancel_heartbeat()
 
             duration = time.time() - start_time
+
+            if lock_lost:
+                LOG.warning(
+                    f"Lock lost for task {task.id} — abandoning without settlement "
+                    f"(another worker will handle it).",
+                    extra={
+                        "duration_s": duration,
+                        "task_id": task.id,
+                        "event": "task_lock_lost",
+                    },
+                )
+                return False
+
             if execution_was_succesful:
                 LOG.info(
                     f"Completed task {task.id} successfully.",

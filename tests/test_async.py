@@ -1,6 +1,7 @@
 import asyncio
 from datetime import timedelta
 
+import azure.core.exceptions
 import pytest
 
 from ai4s.jobq.entities import EmptyQueue
@@ -29,7 +30,65 @@ async def test_async(mocker, async_queue, azurite_connstr):
 
 
 @pytest.mark.asyncio
-async def test_heartbeat(async_queue, azurite_connstr):
+async def test_heartbeat_lock_lost(async_queue, azurite_connstr):
+    """When the heartbeat detects that the lock is lost, the task should be cancelled
+    and the worker should return False without trying to settle the message."""
+    from unittest.mock import MagicMock
+
+    callback_started = asyncio.Event()
+    callback_cancelled = asyncio.Event()
+
+    async def callback(cmd: str):
+        callback_started.set()
+        try:
+            # Long sleep that should be cancelled when the lock is lost.
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            callback_cancelled.set()
+            raise
+
+    await async_queue.push("echo hello world")
+
+    async with JobQ.from_connection_string("jobs", connection_string=azurite_connstr) as q_worker:
+        # Access the underlying storage queue client so we can sabotage the message.
+        backend = q_worker._client
+        assert backend.queue_client is not None
+
+        original_update = backend.queue_client.update_message
+
+        call_count = 0
+
+        async def failing_update(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                # Simulate a pop-receipt mismatch (lock lost).
+                resp = MagicMock()
+                resp.status_code = 400
+                resp.headers = {}
+                resp.content_type = None
+                resp.text.return_value = "PopReceiptMismatch"
+                raise azure.core.exceptions.HttpResponseError(
+                    message="PopReceiptMismatch", response=resp
+                )
+            return await original_update(*args, **kwargs)
+
+        backend.queue_client.update_message = failing_update
+
+        success = await q_worker.pull_and_execute(
+            callback, visibility_timeout=timedelta(seconds=2), with_heartbeat=True
+        )
+
+    assert not success, "Should return False when lock is lost"
+    assert callback_cancelled.is_set(), "Callback should have been cancelled"
+
+    # The message should NOT have been deleted or deadlettered — it must still
+    # be in the queue so another worker can pick it up.  Wait for the
+    # visibility timeout to expire so it becomes visible again.
+    await asyncio.sleep(3)
+    async with JobQ.from_connection_string("jobs", connection_string=azurite_connstr) as q2:
+        msgs = await q2.peek(1)
+        assert len(msgs) >= 1, "Message should still be in the queue"
     """
     check whether we can execute a long-running command by sending continuous heartbeat updates
     """

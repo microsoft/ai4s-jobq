@@ -32,12 +32,14 @@ class StorageQueueEnvelope(Envelope):
         backend: "StorageQueueBackend",
         cancel_heartbeat_event: asyncio.Event,
         heartbeat_cancelled_event: asyncio.Event,
+        lock_lost_event: ty.Optional[asyncio.Event] = None,
     ):
         self.message = message
         self.backend = backend
         self._task = task
         self.cancel_heartbeat_event = cancel_heartbeat_event
         self.heartbeat_cancelled_event = heartbeat_cancelled_event
+        self._lock_lost_event = lock_lost_event or asyncio.Event()
 
     @property
     def id(self) -> str:
@@ -46,6 +48,10 @@ class StorageQueueEnvelope(Envelope):
     @property
     def task(self) -> Task:
         return self._task
+
+    @property
+    def lock_lost_event(self) -> asyncio.Event:
+        return self._lock_lost_event
 
     async def delete(self, success: bool, error: str | None = None) -> None:
         if not success:
@@ -155,6 +161,7 @@ class StorageQueueBackend(JobQBackend):
             raise EmptyQueue(f"The queue {self.name} has no more tasks.")
         cancel_heartbeat_event = asyncio.Event()
         heartbeat_cancelled_event = asyncio.Event()
+        lock_lost_event = asyncio.Event()
         async with AsyncExitStack() as stack:
             assert envelope is not None
             if with_heartbeat:
@@ -171,6 +178,7 @@ class StorageQueueBackend(JobQBackend):
                         visibility_timeout=visibility_timeout,
                         cancel_heartbeat_event=cancel_heartbeat_event,
                         heartbeat_cancelled_event=heartbeat_cancelled_event,
+                        lock_lost_event=lock_lost_event,
                     )
                 )
             else:
@@ -186,7 +194,12 @@ class StorageQueueBackend(JobQBackend):
                 raise
             else:
                 yield StorageQueueEnvelope(
-                    envelope, task, self, cancel_heartbeat_event, heartbeat_cancelled_event
+                    envelope,
+                    task,
+                    self,
+                    cancel_heartbeat_event,
+                    heartbeat_cancelled_event,
+                    lock_lost_event,
                 )
 
     async def add_to_dead_letter_queue(self, task: Task, error: str | None = None) -> None:
@@ -246,6 +259,7 @@ class StorageQueueBackend(JobQBackend):
         visibility_timeout: timedelta = timedelta(hours=1),
         cancel_heartbeat_event: asyncio.Event,
         heartbeat_cancelled_event: asyncio.Event,
+        lock_lost_event: asyncio.Event,
     ) -> ty.AsyncGenerator[None, None]:
         """Keeps a queue entry reserved by sending heartbeats.
 
@@ -281,6 +295,19 @@ class StorageQueueBackend(JobQBackend):
                             "Received Heartbeat pop receipt for %s: %s",
                             message.id,
                             pop_receipt,
+                        )
+                    except azure.core.exceptions.HttpResponseError as e:
+                        if e.status_code in (400, 404):
+                            LOG.warning(
+                                "Lock lost for message %s: heartbeat update failed with "
+                                "status %d. Another worker may process this message.",
+                                message.id,
+                                e.status_code,
+                            )
+                            lock_lost_event.set()
+                            return
+                        LOG.exception(
+                            f"Failed to send heartbeat for message {message.id}: ", exc_info=e
                         )
                     except Exception as e:
                         LOG.exception(

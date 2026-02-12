@@ -16,6 +16,12 @@ def pytest_addoption(parser):
         help="run live servicebus tests",
     )
     parser.addoption(
+        "--run-stress-tests",
+        action="store_true",
+        default=False,
+        help="run stress tests (e.g. lock renewal under load)",
+    )
+    parser.addoption(
         "--sb-namespace", action="store", default="ai4s-shared", help="Azure Service Bus namespace"
     )
     parser.addoption(
@@ -35,16 +41,22 @@ def sb_queue(request):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "live: mark test as live run that accesses azure resources")
+    config.addinivalue_line(
+        "markers", "stress: mark test as stress test (slow, resource-intensive)"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption("--run-live"):
-        # --run-live given in cli: do not skip live tests
-        return
-    skip_live = pytest.mark.skip(reason="need --run-live option to run")
-    for item in items:
-        if "live" in item.keywords:
-            item.add_marker(skip_live)
+    if not config.getoption("--run-live"):
+        skip_live = pytest.mark.skip(reason="need --run-live option to run")
+        for item in items:
+            if "live" in item.keywords:
+                item.add_marker(skip_live)
+    if not config.getoption("--run-stress-tests"):
+        skip_stress = pytest.mark.skip(reason="need --run-stress-tests option to run")
+        for item in items:
+            if "stress" in item.keywords:
+                item.add_marker(skip_stress)
 
 
 CONNSTR = (

@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+import asyncio
 import typing as ty
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -14,6 +15,9 @@ class Envelope(ty.Protocol):
 
     @property
     def id(self) -> str: ...
+
+    @property
+    def lock_lost_event(self) -> asyncio.Event: ...
 
     async def delete(self, success: bool, error: str | None = None) -> None: ...
 

@@ -358,12 +358,14 @@ class RESTServiceBusEnvelope(Envelope):
         client: ServiceBusRestClient,
         lock_renewal_task: ty.Optional[asyncio.Task[None]] = None,
         lock_stop_event: ty.Optional[asyncio.Event] = None,
+        lock_lost_event: ty.Optional[asyncio.Event] = None,
     ):
         self.message = message
         self._task = task
         self._client = client
         self._lock_renewal_task = lock_renewal_task
         self._lock_stop_event = lock_stop_event
+        self._lock_lost_event = lock_lost_event or asyncio.Event()
         self.done = False
 
     @property
@@ -373,6 +375,10 @@ class RESTServiceBusEnvelope(Envelope):
     @property
     def task(self) -> Task:
         return self._task
+
+    @property
+    def lock_lost_event(self) -> asyncio.Event:
+        return self._lock_lost_event
 
     async def cancel_heartbeat(self) -> None:
         if self._lock_stop_event is not None:
@@ -469,7 +475,7 @@ class ServiceBusRestBackend(JobQBackend):
         raise NotImplementedError("REST ServiceBus backend does not support get_result yet.")
 
     def _start_lock_renewal(
-        self, message: _ReceivedMessage, interval: float
+        self, message: _ReceivedMessage, interval: float, lock_lost_event: asyncio.Event
     ) -> tuple[asyncio.Task[None], asyncio.Event]:
         """Start a background task that periodically renews the message lock.
 
@@ -536,6 +542,7 @@ class ServiceBusRestBackend(JobQBackend):
                                         since_last_renewal,
                                         lock_duration,
                                     )
+                                    lock_lost_event.set()
                                 return
                             if stop_event.is_set():
                                 return
@@ -589,6 +596,7 @@ class ServiceBusRestBackend(JobQBackend):
                             expired_ago,
                         )
                         lock_lost_logged = True
+                        lock_lost_event.set()
             except asyncio.CancelledError:
                 pass
 
@@ -633,11 +641,14 @@ class ServiceBusRestBackend(JobQBackend):
 
         lock_task: ty.Optional[asyncio.Task[None]] = None
         lock_stop_event: ty.Optional[asyncio.Event] = None
+        lock_lost_event = asyncio.Event()
         if with_heartbeat:
             # Renew at half the actual lock duration reported by Service Bus,
             # NOT the application-level visibility_timeout which can be hours.
             interval = max(message.lock_duration_seconds / 2, 5)
-            lock_task, lock_stop_event = self._start_lock_renewal(message, interval)
+            lock_task, lock_stop_event = self._start_lock_renewal(
+                message, interval, lock_lost_event
+            )
 
         try:
             task = Task.deserialize(message.body)
@@ -654,7 +665,7 @@ class ServiceBusRestBackend(JobQBackend):
             raise
         else:
             envelope = RESTServiceBusEnvelope(
-                message, task, self._rest_client, lock_task, lock_stop_event
+                message, task, self._rest_client, lock_task, lock_stop_event, lock_lost_event
             )
             try:
                 yield envelope
