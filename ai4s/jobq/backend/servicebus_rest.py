@@ -604,7 +604,7 @@ class ServiceBusRestBackend(JobQBackend):
         # Retry several times before declaring the queue empty.
         # Each REST call is independent and may miss messages that are
         # temporarily locked by other receivers.
-        max_empty_polls = int(os.environ.get("JOBQ_SERVICEBUS_EMPTY_POLLS", 3))
+        max_empty_polls = int(os.environ.get("JOBQ_SERVICEBUS_EMPTY_POLLS", 4))
         for attempt in range(max_empty_polls):
             try:
                 message = await self._rest_client.peek_lock_message(timeout=self._max_wait_time)
@@ -613,7 +613,7 @@ class ServiceBusRestBackend(JobQBackend):
                 if attempt == max_empty_polls - 1:
                     raise
                 LOG.debug("No messages on attempt %d/%d, retrying…", attempt + 1, max_empty_polls)
-                await asyncio.sleep(1)
+                await asyncio.sleep(attempt)
             except (TimeoutError, aiohttp.ClientError) as exc:
                 if attempt == max_empty_polls - 1:
                     raise EmptyQueue(f"The queue {self.name} is unreachable: {exc}")
