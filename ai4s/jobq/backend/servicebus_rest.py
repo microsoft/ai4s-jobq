@@ -632,7 +632,7 @@ class ServiceBusRestBackend(JobQBackend):
                 await asyncio.sleep(1)
 
         if message.delivery_count > 1:
-            LOG.warning(
+            LOG.info(
                 "Message %s has been delivered %d times "
                 "(previous lock likely expired before processing finished).",
                 message.message_id,
