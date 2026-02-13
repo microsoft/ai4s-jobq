@@ -356,6 +356,7 @@ class JobQ:
                         with suppress(asyncio.CancelledError):
                             await lock_lost_task
                         ret = callback_task.result()
+                        # avoid race condition where the two tasks finished almost at the same time
                         lock_lost = envelope.lock_lost_event.is_set()
                 else:
                     LOG.warning(
@@ -363,6 +364,7 @@ class JobQ:
                     )
                     ret = command_callback(**kwargs)  # type: ignore
                     lock_lost = envelope.lock_lost_event.is_set()
+                # this value will be ignored when the lock was lost:
                 execution_was_succesful = True
             except WorkerCanceled:
                 await envelope.cancel_heartbeat()
