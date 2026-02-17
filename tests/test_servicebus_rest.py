@@ -211,6 +211,19 @@ class TestServiceBusRestClient:
         assert "/testq/messages" in call_args.args[1]
 
     @pytest.mark.asyncio
+    async def test_send_message_uses_provided_message_id(self):
+        """When message_id is provided, it is used as the MessageId in BrokerProperties."""
+        client = self._make_client()
+        mock_resp = _mock_response(201)
+        mock_session = self._setup_client(client, mock_resp)
+
+        msg_id = await client.send_message('{"test": true}', message_id="custom-id-123")
+        assert msg_id == "custom-id-123"
+        call_headers = mock_session.request.call_args.kwargs.get("headers", {})
+        bp = json.loads(call_headers["BrokerProperties"])
+        assert bp["MessageId"] == "custom-id-123"
+
+    @pytest.mark.asyncio
     async def test_peek_lock_message(self):
         client = self._make_client()
         task = _make_task()
@@ -478,6 +491,37 @@ class TestServiceBusRestBackend:
         backend._rest_client = rest_client
         with pytest.raises(EmptyQueue):
             await backend.peek()
+
+    @pytest.mark.asyncio
+    async def test_push_passes_task_id_as_message_id(self):
+        """push() forwards task._id to send_message as message_id."""
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.send_message = AsyncMock(return_value="new-msg-id")
+        backend._rest_client = rest_client
+
+        task = _make_task()
+        await backend.push(task)
+        rest_client.send_message.assert_called_once_with(task.serialize(), message_id=task._id)
+
+    @pytest.mark.asyncio
+    async def test_push_deterministic_ids_identical_tasks(self, monkeypatch):
+        """Two identical tasks produce the same message_id when JOBQ_DETERMINISTIC_IDS is set."""
+        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", True)
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.send_message = AsyncMock(return_value="msg-id")
+        backend._rest_client = rest_client
+
+        t1 = Task(kwargs={"cmd": "echo hi"}, num_retries=0)
+        t2 = Task(kwargs={"cmd": "echo hi"}, num_retries=0)
+        assert t1._id == t2._id
+
+        await backend.push(t1)
+        await backend.push(t2)
+        id1 = rest_client.send_message.call_args_list[0].kwargs["message_id"]
+        id2 = rest_client.send_message.call_args_list[1].kwargs["message_id"]
+        assert id1 == id2
 
     @pytest.mark.asyncio
     async def test_name_property(self):

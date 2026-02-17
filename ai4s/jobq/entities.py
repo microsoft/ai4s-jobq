@@ -71,7 +71,7 @@ class Task:
     def _id(self):
         if self.id:
             return self.id
-        return md5(json.dumps(self._dict_without_id(), cls=JSON_ENCODER)).hexdigest()
+        return md5(json.dumps(self._dict_without_id(), cls=JSON_ENCODER).encode()).hexdigest()
 
     def _dict_without_id(self):
         return {

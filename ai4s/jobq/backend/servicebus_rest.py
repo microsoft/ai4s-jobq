@@ -241,11 +241,16 @@ class ServiceBusRestClient:
 
         return await _do_request()
 
-    async def send_message(self, body: str, broker_properties: ty.Optional[dict] = None) -> str:
+    async def send_message(
+        self,
+        body: str,
+        broker_properties: ty.Optional[dict] = None,
+        message_id: ty.Optional[str] = None,
+    ) -> str:
         """Send a message to the queue. Returns the message ID."""
         url = f"{self._base_url}/{self.queue_name}/messages"
         # Generate MessageId once so retries are idempotent
-        message_id = uuid.uuid4().hex
+        message_id = message_id or uuid.uuid4().hex
         bp: dict[str, ty.Any] = {"MessageId": message_id}
         if broker_properties:
             bp.update(broker_properties)
@@ -469,7 +474,7 @@ class ServiceBusRestBackend(JobQBackend):
 
     async def push(self, task: Task) -> str:
         assert self._rest_client is not None
-        return await self._rest_client.send_message(task.serialize())
+        return await self._rest_client.send_message(task.serialize(), message_id=task._id)
 
     async def get_result(self, session_id: str, timeout: ty.Optional[timedelta] = None) -> Response:
         raise NotImplementedError("REST ServiceBus backend does not support get_result yet.")

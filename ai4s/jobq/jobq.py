@@ -5,7 +5,6 @@ import logging
 import os
 import textwrap
 import time
-import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from datetime import timedelta
@@ -252,12 +251,14 @@ class JobQ:
         if isinstance(kwargs, str):
             kwargs = {"cmd": kwargs}
 
-        task = Task(
-            id=id or str(uuid.uuid4()),
+        task_kwargs: Dict[str, Any] = dict(
             kwargs=kwargs,
             num_retries=num_retries,
             reply_requested=reply_requested,
         )
+        if id is not None:
+            task_kwargs["id"] = id
+        task = Task(**task_kwargs)
         worker_interface = worker_interface if worker_interface is not None else self._client
         return JobQFuture(self, await worker_interface.push(task))
 
