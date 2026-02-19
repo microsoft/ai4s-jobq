@@ -505,9 +505,8 @@ class TestServiceBusRestBackend:
         rest_client.send_message.assert_called_once_with(task.serialize(), message_id=task._id)
 
     @pytest.mark.asyncio
-    async def test_push_deterministic_ids_identical_tasks(self, monkeypatch):
-        """Two identical tasks produce the same message_id when JOBQ_DETERMINISTIC_IDS is set."""
-        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", True)
+    async def test_push_deterministic_ids_identical_tasks(self):
+        """Two identical tasks produce the same message_id (deterministic IDs are the default)."""
         backend = self._make_backend()
         rest_client = AsyncMock(spec=ServiceBusRestClient)
         rest_client.send_message = AsyncMock(return_value="msg-id")
@@ -522,6 +521,25 @@ class TestServiceBusRestBackend:
         id1 = rest_client.send_message.call_args_list[0].kwargs["message_id"]
         id2 = rest_client.send_message.call_args_list[1].kwargs["message_id"]
         assert id1 == id2
+
+    @pytest.mark.asyncio
+    async def test_push_random_ids_when_deterministic_disabled(self, monkeypatch):
+        """Two identical tasks get different IDs when JOBQ_DETERMINISTIC_IDS is disabled."""
+        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", False)
+        backend = self._make_backend()
+        rest_client = AsyncMock(spec=ServiceBusRestClient)
+        rest_client.send_message = AsyncMock(return_value="msg-id")
+        backend._rest_client = rest_client
+
+        t1 = Task(kwargs={"cmd": "echo hi"}, num_retries=0)
+        t2 = Task(kwargs={"cmd": "echo hi"}, num_retries=0)
+        assert t1._id != t2._id
+
+        await backend.push(t1)
+        await backend.push(t2)
+        id1 = rest_client.send_message.call_args_list[0].kwargs["message_id"]
+        id2 = rest_client.send_message.call_args_list[1].kwargs["message_id"]
+        assert id1 != id2
 
     @pytest.mark.asyncio
     async def test_name_property(self):

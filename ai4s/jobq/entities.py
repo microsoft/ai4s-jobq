@@ -17,7 +17,7 @@ else:
     JSON_DECODER = json.JSONDecoder
 
 
-JOBQ_DETERMINISTIC_IDS = os.getenv("JOBQ_DETERMINISTIC_IDS", "").lower() in (
+JOBQ_DETERMINISTIC_IDS = os.getenv("JOBQ_DETERMINISTIC_IDS", "true").lower() in (
     "1",
     "true",
     "yes",
