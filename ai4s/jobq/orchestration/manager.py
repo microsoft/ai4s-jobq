@@ -46,6 +46,11 @@ SeedType = ty.TypeVar("SeedType")
 
 
 try:
+    # Prevent mlflow from using the tracking URI for model registry,
+    # which doesn't support azureml:// URIs
+    if "MLFLOW_REGISTRY_URI" not in os.environ:
+        os.environ["MLFLOW_REGISTRY_URI"] = ""
+
     import mlflow  # type: ignore
 
     HAVE_MLFLOW = True
