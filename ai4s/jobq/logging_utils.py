@@ -230,7 +230,8 @@ def setup_logging(
             try:
                 credential: TokenCredential | None
                 credential = get_sync_token_credential()
-                credential.get_token("https://management.azure.com/.default")
+                # Use the Monitor scope for Application Insights with RBAC
+                credential.get_token("https://monitor.azure.com/.default")
             except Exception as e:
                 LOG.warning(
                     "Could not get a working token credential, setting up app insights without authentication"
