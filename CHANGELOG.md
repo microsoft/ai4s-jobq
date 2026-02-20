@@ -10,14 +10,18 @@ Features:
 * Application Insights with RBAC authentication is now supported. The credential
   validation now uses the correct `https://monitor.azure.com/.default` scope.
 
+* Added retry logic for `get_queue_runtime_properties` in the Service Bus REST
+  backend to handle transient `None` responses that could cause `AttributeError`.
+
+* Changed log format to `YYYY-MM-DD HH:MM:SS LEVEL: message [logger]` for better
+  readability and consistency.
+
+
 Fixes:
 
 * Fixed MLflow import error when using Azure ML tracking URIs by setting
   `MLFLOW_REGISTRY_URI` to empty before import, preventing the
   `UnsupportedModelRegistryStoreURIException`.
-
-* Added retry logic for `get_queue_runtime_properties` in the Service Bus REST
-  backend to handle transient `None` responses that could cause `AttributeError`.
 
 
 2.17.0 (2026-02-12)
