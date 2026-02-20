@@ -724,11 +724,24 @@ class ServiceBusRestBackend(JobQBackend):
             raise RuntimeError("No credential provided.")
 
     async def __len__(self) -> int:
-        async with self._get_admin_client() as aclt:
-            queue_runtime_info = await aclt.get_queue_runtime_properties(queue_name=self.queue_name)
-            ret = queue_runtime_info.active_message_count
-            assert isinstance(ret, int)
-            return ret
+        @retry(
+            retry=retry_if_exception(lambda e: isinstance(e, (AttributeError, TypeError))),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential_jitter(initial=0.5, max=5, jitter=1),
+            reraise=True,
+        )
+        async def _get_message_count() -> int:
+            async with self._get_admin_client() as aclt:
+                queue_runtime_info = await aclt.get_queue_runtime_properties(
+                    queue_name=self.queue_name
+                )
+                if queue_runtime_info is None:
+                    raise AttributeError("get_queue_runtime_properties returned None")
+                ret = queue_runtime_info.active_message_count
+                assert isinstance(ret, int)
+                return ret
+
+        return await _get_message_count()
 
     @property
     def name(self) -> str:
