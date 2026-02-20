@@ -46,11 +46,6 @@ SeedType = ty.TypeVar("SeedType")
 
 
 try:
-    # Prevent mlflow from using the tracking URI for model registry,
-    # which doesn't support azureml:// URIs
-    if "MLFLOW_REGISTRY_URI" not in os.environ:
-        os.environ["MLFLOW_REGISTRY_URI"] = ""
-
     import mlflow  # type: ignore
 
     HAVE_MLFLOW = True
@@ -730,5 +725,10 @@ async def _log_stats_to_mlflow(stats: _StatsObjectWithDict) -> None:
         prefix = f"rank_{os.environ['RANK']}_"
     else:
         prefix = "_"
-
-    mlflow.log_metrics({prefix + key: value for key, value in stats.dict().items()})
+    try:
+        mlflow.log_metrics({prefix + key: value for key, value in stats.dict().items()})
+    except mlflow.tracking.registry.UnsupportedModelRegistryStoreURIException:
+        LOG.warning(
+            "Failed to log stats to MLFlow. This is likely because mlflow is installed, "
+            "but azureml-mlflow is not installed."
+        )

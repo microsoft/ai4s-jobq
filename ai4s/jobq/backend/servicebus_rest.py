@@ -17,7 +17,13 @@ from azure.core.credentials import AccessToken
 from azure.core.credentials_async import AsyncTokenCredential
 from azure.core.exceptions import ResourceExistsError
 from azure.servicebus.aio.management import ServiceBusAdministrationClient
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
+from tenacity import (
+    retry,
+    retry_if_exception,
+    retry_if_result,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from ai4s.jobq.entities import EmptyQueue, Response, Task
 
@@ -725,7 +731,7 @@ class ServiceBusRestBackend(JobQBackend):
 
     async def __len__(self) -> int:
         @retry(
-            retry=retry_if_exception(lambda e: isinstance(e, (AttributeError, TypeError))),
+            retry=retry_if_result(lambda r: r is None),
             stop=stop_after_attempt(3),
             wait=wait_exponential_jitter(initial=0.5, max=5, jitter=1),
             reraise=True,
