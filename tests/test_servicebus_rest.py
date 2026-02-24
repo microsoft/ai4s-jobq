@@ -592,11 +592,14 @@ class TestServiceBusRestBackend:
     @pytest.mark.asyncio
     async def test_no_warn_when_consistent(self, monkeypatch, caplog):
         """No warning when deterministic IDs and queue dedup are both enabled."""
+        from datetime import timedelta
+
         monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", True)
         backend = self._make_backend()
 
         mock_props = MagicMock()
         mock_props.requires_duplicate_detection = True
+        mock_props.duplicate_detection_history_time_window = timedelta(days=7)
         mock_admin = AsyncMock()
         mock_admin.get_queue = AsyncMock(return_value=mock_props)
         mock_admin.__aenter__ = AsyncMock(return_value=mock_admin)
@@ -627,8 +630,53 @@ class TestServiceBusRestBackend:
             await backend._warn_if_dedup_misconfigured()
         assert "deduplicated" not in caplog.text.lower()
 
+    @pytest.mark.asyncio
+    async def test_warn_dedup_window_mismatch(self, monkeypatch, caplog):
+        """Warns when the queue's dedup window differs from the configured one."""
+        from datetime import timedelta
 
-# ── Retry / resilience tests ────────────────────────────────────────────
+        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", True)
+        backend = self._make_backend()
+        backend._duplicate_detection_window = timedelta(days=7)
+
+        mock_props = MagicMock()
+        mock_props.requires_duplicate_detection = True
+        mock_props.duplicate_detection_history_time_window = timedelta(days=1)
+        mock_admin = AsyncMock()
+        mock_admin.get_queue = AsyncMock(return_value=mock_props)
+        mock_admin.__aenter__ = AsyncMock(return_value=mock_admin)
+        mock_admin.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(backend, "_get_admin_client", lambda: mock_admin)
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="ai4s.jobq"):
+            await backend._warn_if_dedup_misconfigured()
+        assert "duplicate detection window" in caplog.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_no_warn_dedup_window_matches(self, monkeypatch, caplog):
+        """No warning when queue dedup window matches the configured one."""
+        from datetime import timedelta
+
+        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", True)
+        backend = self._make_backend()
+        backend._duplicate_detection_window = timedelta(days=7)
+
+        mock_props = MagicMock()
+        mock_props.requires_duplicate_detection = True
+        mock_props.duplicate_detection_history_time_window = timedelta(days=7)
+        mock_admin = AsyncMock()
+        mock_admin.get_queue = AsyncMock(return_value=mock_props)
+        mock_admin.__aenter__ = AsyncMock(return_value=mock_admin)
+        mock_admin.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(backend, "_get_admin_client", lambda: mock_admin)
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="ai4s.jobq"):
+            await backend._warn_if_dedup_misconfigured()
+        assert caplog.text == ""
 
 
 class TestServiceBusRestClientRetry:
