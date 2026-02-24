@@ -120,6 +120,7 @@ class JobQ:
         fqns: Optional[str] = None,
         credential: Optional[Any] = None,
         exist_ok: bool = True,
+        duplicate_detection_window: Optional[timedelta] = None,
     ) -> AsyncGenerator[T, None]:
         """Creates a new queue from a Service Bus."""
         from .backend.servicebus_rest import ServiceBusRestBackend
@@ -130,6 +131,7 @@ class JobQ:
             fqns=fqns,
             credential=credential,
             exist_ok=exist_ok,
+            duplicate_detection_window=duplicate_detection_window,
         ) as backend:
             str_credential = credential if isinstance(credential, str) else None
             yield cls(backend, credential=str_credential)

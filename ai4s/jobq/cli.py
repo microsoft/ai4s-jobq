@@ -189,6 +189,7 @@ class QueueConfig:
     conn_str: Optional[str] = None
     credential: Optional[Union[str, AsyncTokenCredential]] = None
     log_handler: Optional[JobQRichHandler] = None
+    duplicate_detection_window: Optional[timedelta] = None
 
     @asynccontextmanager
     async def get(
@@ -239,6 +240,7 @@ class QueueConfig:
                             fqns=f"{self.backend_spec.namespace}.servicebus.windows.net",
                             credential=credential,
                             exist_ok=exist_ok,
+                            duplicate_detection_window=self.duplicate_detection_window,
                         )
                     )
                 else:
@@ -261,6 +263,12 @@ class QueueConfig:
 )
 @click.option("--verbose", "-v", count=True, help="Enable verbose logging.")
 @click.option("--quiet", "-q", count=True, help="Enable verbose logging.")
+@click.option(
+    "--dedup-window",
+    type=int,
+    default=None,
+    help="Duplicate detection window in days (Service Bus only, default: 7).",
+)
 @click.pass_context
 async def main(
     ctx: click.Context,
@@ -268,6 +276,7 @@ async def main(
     verbose: int,
     quiet: int,
     conn_str: str,
+    dedup_window: Optional[int],
 ) -> None:
     """
     Interact with the job queue, assuming commands are shell commands.
@@ -295,6 +304,8 @@ async def main(
     ctx.obj.backend_spec = backend_spec
     ctx.obj.conn_str = conn_str
     ctx.obj.log_handler = log_handler
+    if dedup_window is not None:
+        ctx.obj.duplicate_detection_window = timedelta(days=dedup_window)
 
 
 @main.command("push")

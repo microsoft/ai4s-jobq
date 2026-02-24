@@ -441,12 +441,14 @@ class ServiceBusRestBackend(JobQBackend):
         fqns: ty.Optional[str] = None,
         credential: ty.Optional[ty.Any] = None,
         exist_ok: bool = True,
+        duplicate_detection_window: ty.Optional[timedelta] = None,
     ):
         self.fqns = fqns
         self.queue_name = queue_name
         self.reply_queue_name = queue_name + "-replies"
         self.credential = credential
         self._exist_ok = exist_ok
+        self._duplicate_detection_window = duplicate_detection_window or timedelta(days=7)
         self._rest_client: ty.Optional[ServiceBusRestClient] = None
         self._max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 5))
         # max lock renewal lifetime: 3 weeks
@@ -720,7 +722,7 @@ class ServiceBusRestBackend(JobQBackend):
                     requires_session=False,
                     lock_duration=timedelta(minutes=5),
                     requires_duplicate_detection=True,
-                    duplicate_detection_history_time_window=timedelta(days=7),
+                    duplicate_detection_history_time_window=self._duplicate_detection_window,
                 )
                 LOG.info(f"Created queue {self.queue_name}")
             except ResourceExistsError:

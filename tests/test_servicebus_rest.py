@@ -546,6 +546,87 @@ class TestServiceBusRestBackend:
         backend = self._make_backend()
         assert backend.name == "myns.servicebus.windows.net/testq"
 
+    @pytest.mark.asyncio
+    async def test_warn_dedup_enabled_but_no_queue_dedup(self, monkeypatch, caplog):
+        """Warns when deterministic IDs are on but queue lacks duplicate detection."""
+        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", True)
+        backend = self._make_backend()
+
+        mock_props = MagicMock()
+        mock_props.requires_duplicate_detection = False
+        mock_admin = AsyncMock()
+        mock_admin.get_queue = AsyncMock(return_value=mock_props)
+        mock_admin.__aenter__ = AsyncMock(return_value=mock_admin)
+        mock_admin.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(backend, "_get_admin_client", lambda: mock_admin)
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="ai4s.jobq"):
+            await backend._warn_if_dedup_misconfigured()
+        assert (
+            "duplicate detection enabled" in caplog.text.lower()
+            or "will NOT be deduplicated" in caplog.text
+        )
+
+    @pytest.mark.asyncio
+    async def test_warn_queue_dedup_but_no_deterministic_ids(self, monkeypatch, caplog):
+        """Warns when queue has dedup but deterministic IDs are off."""
+        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", False)
+        backend = self._make_backend()
+
+        mock_props = MagicMock()
+        mock_props.requires_duplicate_detection = True
+        mock_admin = AsyncMock()
+        mock_admin.get_queue = AsyncMock(return_value=mock_props)
+        mock_admin.__aenter__ = AsyncMock(return_value=mock_admin)
+        mock_admin.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(backend, "_get_admin_client", lambda: mock_admin)
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="ai4s.jobq"):
+            await backend._warn_if_dedup_misconfigured()
+        assert "duplicate detection will have no effect" in caplog.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_no_warn_when_consistent(self, monkeypatch, caplog):
+        """No warning when deterministic IDs and queue dedup are both enabled."""
+        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", True)
+        backend = self._make_backend()
+
+        mock_props = MagicMock()
+        mock_props.requires_duplicate_detection = True
+        mock_admin = AsyncMock()
+        mock_admin.get_queue = AsyncMock(return_value=mock_props)
+        mock_admin.__aenter__ = AsyncMock(return_value=mock_admin)
+        mock_admin.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(backend, "_get_admin_client", lambda: mock_admin)
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="ai4s.jobq"):
+            await backend._warn_if_dedup_misconfigured()
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_warn_suppressed_on_admin_error(self, monkeypatch, caplog):
+        """No warning or crash when admin client throws."""
+        monkeypatch.setattr("ai4s.jobq.entities.JOBQ_DETERMINISTIC_IDS", True)
+        backend = self._make_backend()
+
+        mock_admin = AsyncMock()
+        mock_admin.get_queue = AsyncMock(side_effect=RuntimeError("connection failed"))
+        mock_admin.__aenter__ = AsyncMock(return_value=mock_admin)
+        mock_admin.__aexit__ = AsyncMock(return_value=None)
+        monkeypatch.setattr(backend, "_get_admin_client", lambda: mock_admin)
+
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="ai4s.jobq"):
+            await backend._warn_if_dedup_misconfigured()
+        assert "deduplicated" not in caplog.text.lower()
+
 
 # ── Retry / resilience tests ────────────────────────────────────────────
 

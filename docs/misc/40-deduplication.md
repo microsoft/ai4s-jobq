@@ -26,9 +26,10 @@ detection on an existing queue.
 
 ## Configuration
 
-| Environment variable | Default | Description |
-|---|---|---|
-| `JOBQ_DETERMINISTIC_IDS` | `true` | When `true`, task IDs are the MD5 hash of the payload. When `false`, a random UUID is generated for each task. |
+| Parameter | CLI flag | Default | Description |
+|---|---|---|---|
+| `JOBQ_DETERMINISTIC_IDS` | — | `true` | When `true`, task IDs are the MD5 hash of the payload. When `false`, a random UUID is generated for each task. |
+| `duplicate_detection_window` | `--dedup-window` | `7` (days) | Duration of the Service Bus duplicate detection history window. Passed as integer days on the CLI or as a `timedelta` in the Python API. |
 
 Set `JOBQ_DETERMINISTIC_IDS=false` if you intentionally want every push to
 create a distinct message, even for identical payloads.
