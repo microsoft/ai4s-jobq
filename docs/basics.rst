@@ -7,9 +7,9 @@ Choosing a backend
 ``ai4s.jobq`` supports two Azure queue backends:
 
 - **Azure Storage Queue** — simple and cheap. Good for most workloads. Requires a storage account.
-- **Azure Service Bus** — offers built-in `dead-letter queues <https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-dead-letter-queues>`_
-  and non-destructive message peeking, making it easier to inspect in-flight
-  and failed tasks. Recommended when observability into queue state matters.
+- **Azure Service Bus** — offers built-in `dead-letter queues <https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-dead-letter-queues>`_,
+  non-destructive message peeking, and `duplicate detection <misc/40-deduplication.md>`_.
+  Recommended when observability into queue state matters.
 
 Both backends are included in the base install — no extras required.
 
