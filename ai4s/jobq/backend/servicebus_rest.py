@@ -247,11 +247,16 @@ class ServiceBusRestClient:
 
         return await _do_request()
 
-    async def send_message(self, body: str, broker_properties: ty.Optional[dict] = None) -> str:
+    async def send_message(
+        self,
+        body: str,
+        broker_properties: ty.Optional[dict] = None,
+        message_id: ty.Optional[str] = None,
+    ) -> str:
         """Send a message to the queue. Returns the message ID."""
         url = f"{self._base_url}/{self.queue_name}/messages"
         # Generate MessageId once so retries are idempotent
-        message_id = uuid.uuid4().hex
+        message_id = message_id or uuid.uuid4().hex
         bp: dict[str, ty.Any] = {"MessageId": message_id}
         if broker_properties:
             bp.update(broker_properties)
@@ -436,12 +441,14 @@ class ServiceBusRestBackend(JobQBackend):
         fqns: ty.Optional[str] = None,
         credential: ty.Optional[ty.Any] = None,
         exist_ok: bool = True,
+        duplicate_detection_window: ty.Optional[timedelta] = None,
     ):
         self.fqns = fqns
         self.queue_name = queue_name
         self.reply_queue_name = queue_name + "-replies"
         self.credential = credential
         self._exist_ok = exist_ok
+        self._duplicate_detection_window = duplicate_detection_window or timedelta(days=7)
         self._rest_client: ty.Optional[ServiceBusRestClient] = None
         self._max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 5))
         # max lock renewal lifetime: 3 weeks
@@ -459,6 +466,7 @@ class ServiceBusRestBackend(JobQBackend):
         )
         await self._rest_client.__aenter__()
         await self.create(exist_ok=self._exist_ok)
+        await self._warn_if_dedup_misconfigured()
         return self
 
     async def __aexit__(
@@ -471,11 +479,48 @@ class ServiceBusRestBackend(JobQBackend):
             await self._rest_client.__aexit__(exc_type, exc, tb)
             self._rest_client = None
 
+    async def _warn_if_dedup_misconfigured(self) -> None:
+        from ai4s.jobq.entities import JOBQ_DETERMINISTIC_IDS
+
+        try:
+            async with self._get_admin_client() as admin_client:
+                props = await admin_client.get_queue(self.queue_name)
+                has_dedup = props.requires_duplicate_detection
+        except Exception:
+            return  # best-effort; don't block startup
+        if JOBQ_DETERMINISTIC_IDS and not has_dedup:
+            LOG.warning(
+                "Deterministic task IDs are enabled but queue %r does not have "
+                "duplicate detection enabled. Messages will NOT be deduplicated. "
+                "Delete and recreate the queue to fix this.",
+                self.queue_name,
+            )
+        elif not JOBQ_DETERMINISTIC_IDS and has_dedup:
+            LOG.warning(
+                "Queue %r has duplicate detection enabled but deterministic task IDs "
+                "are disabled (JOBQ_DETERMINISTIC_IDS is not set). Random IDs will be "
+                "used, so duplicate detection will have no effect.",
+                self.queue_name,
+            )
+        if has_dedup:
+            queue_window = props.duplicate_detection_history_time_window
+            if queue_window is not None and queue_window != self._duplicate_detection_window:
+                import humanize
+
+                LOG.warning(
+                    "Queue %r has duplicate detection window of %s but configured "
+                    "window is %s. Delete and recreate the queue to apply the "
+                    "new window.",
+                    self.queue_name,
+                    humanize.naturaldelta(queue_window),
+                    humanize.naturaldelta(self._duplicate_detection_window),
+                )
+
     # ── JobQBackend protocol implementation ──────────────────────────────
 
     async def push(self, task: Task) -> str:
         assert self._rest_client is not None
-        return await self._rest_client.send_message(task.serialize())
+        return await self._rest_client.send_message(task.serialize(), message_id=task._id)
 
     async def get_result(self, session_id: str, timeout: ty.Optional[timedelta] = None) -> Response:
         raise NotImplementedError("REST ServiceBus backend does not support get_result yet.")
@@ -689,6 +734,8 @@ class ServiceBusRestBackend(JobQBackend):
                     queue_name=self.queue_name,
                     requires_session=False,
                     lock_duration=timedelta(minutes=5),
+                    requires_duplicate_detection=True,
+                    duplicate_detection_history_time_window=self._duplicate_detection_window,
                 )
                 LOG.info(f"Created queue {self.queue_name}")
             except ResourceExistsError:

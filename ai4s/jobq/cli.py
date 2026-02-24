@@ -189,6 +189,7 @@ class QueueConfig:
     conn_str: Optional[str] = None
     credential: Optional[Union[str, AsyncTokenCredential]] = None
     log_handler: Optional[JobQRichHandler] = None
+    duplicate_detection_window: Optional[timedelta] = None
 
     @asynccontextmanager
     async def get(
@@ -239,6 +240,7 @@ class QueueConfig:
                             fqns=f"{self.backend_spec.namespace}.servicebus.windows.net",
                             credential=credential,
                             exist_ok=exist_ok,
+                            duplicate_detection_window=self.duplicate_detection_window,
                         )
                     )
                 else:
@@ -320,6 +322,12 @@ async def main(
     multiple=True,
     help="Environment variables to set.",
 )
+@click.option(
+    "--dedup-window",
+    type=DurationParam(),
+    default=None,
+    help="Duplicate detection window, e.g. 7d, 12h (Service Bus only, default: 7d).",
+)
 @click.pass_context
 async def push(
     ctx: click.Context,
@@ -329,6 +337,7 @@ async def push(
     env_vars: List[Tuple[str, str]],
     wait: bool,
     num_enqueue_workers: int,
+    dedup_window: Optional[timedelta],
 ) -> None:
     """
     Enqueue a new job to the job queue.
@@ -340,6 +349,9 @@ async def push(
         show_progress = True
 
     env = dict(env_vars)
+
+    if dedup_window is not None:
+        ctx.obj.duplicate_detection_window = dedup_window
 
     class IteratorWorkSpec(WorkSpecification[Dict[str, Any], DefaultSeed]):
         async def list_tasks(

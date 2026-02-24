@@ -5,7 +5,6 @@ import logging
 import os
 import textwrap
 import time
-import uuid
 from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from datetime import timedelta
@@ -121,6 +120,7 @@ class JobQ:
         fqns: Optional[str] = None,
         credential: Optional[Any] = None,
         exist_ok: bool = True,
+        duplicate_detection_window: Optional[timedelta] = None,
     ) -> AsyncGenerator[T, None]:
         """Creates a new queue from a Service Bus."""
         from .backend.servicebus_rest import ServiceBusRestBackend
@@ -131,6 +131,7 @@ class JobQ:
             fqns=fqns,
             credential=credential,
             exist_ok=exist_ok,
+            duplicate_detection_window=duplicate_detection_window,
         ) as backend:
             str_credential = credential if isinstance(credential, str) else None
             yield cls(backend, credential=str_credential)
@@ -252,12 +253,14 @@ class JobQ:
         if isinstance(kwargs, str):
             kwargs = {"cmd": kwargs}
 
-        task = Task(
-            id=id or str(uuid.uuid4()),
+        task_kwargs: Dict[str, Any] = dict(
             kwargs=kwargs,
             num_retries=num_retries,
             reply_requested=reply_requested,
         )
+        if id is not None:
+            task_kwargs["id"] = id
+        task = Task(**task_kwargs)
         worker_interface = worker_interface if worker_interface is not None else self._client
         return JobQFuture(self, await worker_interface.push(task))
 
