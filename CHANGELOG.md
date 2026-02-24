@@ -2,26 +2,40 @@ CHANGELOG
 =========
 
 
-2.18.0 (2026-02-24)
--------------------
+3.0.0 (2026-02-24)
+------------------
+
+Breaking changes:
+
+* Service Bus queues are now created with duplicate detection enabled
+  (``requires_duplicate_detection=True``) and a 7-day detection window.
+  Existing queues must be deleted and recreated to benefit from deduplication.
 
 Features:
 
+* Task IDs are now deterministic by default (``JOBQ_DETERMINISTIC_IDS=true``).
+  Identical tasks produce the same ID (MD5 of serialized content), enabling
+  Service Bus duplicate detection to silently drop re-submitted tasks.
+
+* A warning is now logged on startup when the queue's duplicate detection
+  setting does not match the ``JOBQ_DETERMINISTIC_IDS`` configuration — in
+  either direction.
+
 * Application Insights with RBAC authentication is now supported. The credential
-  validation now uses the correct `https://monitor.azure.com/.default` scope.
+  validation now uses the correct ``https://monitor.azure.com/.default`` scope.
 
-* Added retry logic for `get_queue_runtime_properties` in the Service Bus REST
-  backend to handle transient `None` responses that could cause `AttributeError`.
+* Added retry logic for ``get_queue_runtime_properties`` in the Service Bus REST
+  backend to handle transient ``None`` responses that could cause ``AttributeError``.
 
-* Changed log format to `YYYY-MM-DD HH:MM:SS LEVEL: message [logger]` for better
+* Changed log format to ``YYYY-MM-DD HH:MM:SS LEVEL: message [logger]`` for better
   readability and consistency.
 
 
 Fixes:
 
 * Fixed MLflow import error when using Azure ML tracking URIs by setting
-  `MLFLOW_REGISTRY_URI` to empty before import, preventing the
-  `UnsupportedModelRegistryStoreURIException`.
+  ``MLFLOW_REGISTRY_URI`` to empty before import, preventing the
+  ``UnsupportedModelRegistryStoreURIException``.
 
 
 2.17.0 (2026-02-12)

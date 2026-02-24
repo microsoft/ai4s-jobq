@@ -464,6 +464,7 @@ class ServiceBusRestBackend(JobQBackend):
         )
         await self._rest_client.__aenter__()
         await self.create(exist_ok=self._exist_ok)
+        await self._warn_if_dedup_misconfigured()
         return self
 
     async def __aexit__(
@@ -475,6 +476,30 @@ class ServiceBusRestBackend(JobQBackend):
         if self._rest_client is not None:
             await self._rest_client.__aexit__(exc_type, exc, tb)
             self._rest_client = None
+
+    async def _warn_if_dedup_misconfigured(self) -> None:
+        from ai4s.jobq.entities import JOBQ_DETERMINISTIC_IDS
+
+        try:
+            async with self._get_admin_client() as admin_client:
+                props = await admin_client.get_queue(self.queue_name)
+                has_dedup = props.requires_duplicate_detection
+        except Exception:
+            return  # best-effort; don't block startup
+        if JOBQ_DETERMINISTIC_IDS and not has_dedup:
+            LOG.warning(
+                "Deterministic task IDs are enabled but queue %r does not have "
+                "duplicate detection enabled. Messages will NOT be deduplicated. "
+                "Delete and recreate the queue to fix this.",
+                self.queue_name,
+            )
+        elif not JOBQ_DETERMINISTIC_IDS and has_dedup:
+            LOG.warning(
+                "Queue %r has duplicate detection enabled but deterministic task IDs "
+                "are disabled (JOBQ_DETERMINISTIC_IDS is not set). Random IDs will be "
+                "used, so duplicate detection will have no effect.",
+                self.queue_name,
+            )
 
     # ── JobQBackend protocol implementation ──────────────────────────────
 
@@ -694,6 +719,8 @@ class ServiceBusRestBackend(JobQBackend):
                     queue_name=self.queue_name,
                     requires_session=False,
                     lock_duration=timedelta(minutes=5),
+                    requires_duplicate_detection=True,
+                    duplicate_detection_history_time_window=timedelta(days=7),
                 )
                 LOG.info(f"Created queue {self.queue_name}")
             except ResourceExistsError:
