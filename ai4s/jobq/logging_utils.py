@@ -207,7 +207,7 @@ def setup_logging(
     if not sys.stdin.isatty():
         log_handler: PlainHandler | JobQRichHandler = PlainHandler(plain_task_logs=True)
         log_handler.setLevel(internal_log_level)
-        fmt = "%(levelname).1s%(levelname).1s %(asctime)s\t%(name)s: %(message)s"
+        fmt = "%(asctime)s %(levelname)s: %(message)s [%(name)s]"
     else:
         log_handler = JobQRichHandler(plain_task_logs=True, show_path=False, show_time=False)
         fmt = "%(name)s: %(message)s"
@@ -215,7 +215,7 @@ def setup_logging(
     logging.basicConfig(
         level=base_log_level,
         format=fmt,
-        datefmt="[%X]",
+        datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[cache_log_handler, log_handler],
     )
 
@@ -230,7 +230,8 @@ def setup_logging(
             try:
                 credential: TokenCredential | None
                 credential = get_sync_token_credential()
-                credential.get_token("https://management.azure.com/.default")
+                # Use the Monitor scope for Application Insights with RBAC
+                credential.get_token("https://monitor.azure.com/.default")
             except Exception as e:
                 LOG.warning(
                     "Could not get a working token credential, setting up app insights without authentication"
