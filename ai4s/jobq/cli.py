@@ -263,12 +263,6 @@ class QueueConfig:
 )
 @click.option("--verbose", "-v", count=True, help="Enable verbose logging.")
 @click.option("--quiet", "-q", count=True, help="Enable verbose logging.")
-@click.option(
-    "--dedup-window",
-    type=DurationParam(),
-    default=None,
-    help="Duplicate detection window, e.g. 7d, 12h (Service Bus only, default: 7d).",
-)
 @click.pass_context
 async def main(
     ctx: click.Context,
@@ -276,7 +270,6 @@ async def main(
     verbose: int,
     quiet: int,
     conn_str: str,
-    dedup_window: Optional[timedelta],
 ) -> None:
     """
     Interact with the job queue, assuming commands are shell commands.
@@ -304,8 +297,6 @@ async def main(
     ctx.obj.backend_spec = backend_spec
     ctx.obj.conn_str = conn_str
     ctx.obj.log_handler = log_handler
-    if dedup_window is not None:
-        ctx.obj.duplicate_detection_window = dedup_window
 
 
 @main.command("push")
@@ -331,6 +322,12 @@ async def main(
     multiple=True,
     help="Environment variables to set.",
 )
+@click.option(
+    "--dedup-window",
+    type=DurationParam(),
+    default=None,
+    help="Duplicate detection window, e.g. 7d, 12h (Service Bus only, default: 7d).",
+)
 @click.pass_context
 async def push(
     ctx: click.Context,
@@ -340,6 +337,7 @@ async def push(
     env_vars: List[Tuple[str, str]],
     wait: bool,
     num_enqueue_workers: int,
+    dedup_window: Optional[timedelta],
 ) -> None:
     """
     Enqueue a new job to the job queue.
@@ -351,6 +349,9 @@ async def push(
         show_progress = True
 
     env = dict(env_vars)
+
+    if dedup_window is not None:
+        ctx.obj.duplicate_detection_window = dedup_window
 
     class IteratorWorkSpec(WorkSpecification[Dict[str, Any], DefaultSeed]):
         async def list_tasks(
