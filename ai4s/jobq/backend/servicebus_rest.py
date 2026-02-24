@@ -505,13 +505,15 @@ class ServiceBusRestBackend(JobQBackend):
         if has_dedup:
             queue_window = props.duplicate_detection_history_time_window
             if queue_window is not None and queue_window != self._duplicate_detection_window:
+                import humanize
+
                 LOG.warning(
-                    "Queue %r has duplicate detection window %s but configured "
+                    "Queue %r has duplicate detection window of %s but configured "
                     "window is %s. Delete and recreate the queue to apply the "
                     "new window.",
                     self.queue_name,
-                    queue_window,
-                    self._duplicate_detection_window,
+                    humanize.naturaldelta(queue_window),
+                    humanize.naturaldelta(self._duplicate_detection_window),
                 )
 
     # ── JobQBackend protocol implementation ──────────────────────────────
