@@ -265,9 +265,9 @@ class QueueConfig:
 @click.option("--quiet", "-q", count=True, help="Enable verbose logging.")
 @click.option(
     "--dedup-window",
-    type=int,
+    type=DurationParam(),
     default=None,
-    help="Duplicate detection window in days (Service Bus only, default: 7).",
+    help="Duplicate detection window, e.g. 7d, 12h (Service Bus only, default: 7d).",
 )
 @click.pass_context
 async def main(
@@ -276,7 +276,7 @@ async def main(
     verbose: int,
     quiet: int,
     conn_str: str,
-    dedup_window: Optional[int],
+    dedup_window: Optional[timedelta],
 ) -> None:
     """
     Interact with the job queue, assuming commands are shell commands.
@@ -305,7 +305,7 @@ async def main(
     ctx.obj.conn_str = conn_str
     ctx.obj.log_handler = log_handler
     if dedup_window is not None:
-        ctx.obj.duplicate_detection_window = timedelta(days=dedup_window)
+        ctx.obj.duplicate_detection_window = dedup_window
 
 
 @main.command("push")
