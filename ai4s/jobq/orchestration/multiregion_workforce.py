@@ -1,9 +1,8 @@
-# Copyright (c) Microsoft Corporation.
-# Licensed under the MIT License.
 import asyncio
 import logging
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 from ai4s.jobq import JobQ
 from ai4s.jobq.auth import get_token_credential
@@ -31,7 +30,7 @@ class MultiRegionWorkforce:
         workforces: A list of Workforce objects to manage across regions.
         num_workers: Number of workers per job.
         queue_name: The name of the queue to process.
-        storage_account: The storage account containing the queue or the servicebus, in the format sb://SERVICEBUS_NAMESPACE.
+        storage_account: The storage account containing the queue.
         credential: Azure credential for authentication.
         max_num_workers: Maximum number of workers to scale up to (defaults to MAX_WORKERS_LIMIT).
         use_lazy_states: Whether to cache workforce states between calls.
@@ -86,6 +85,32 @@ class MultiRegionWorkforce:
         self._states = [workforce.get_current_state() for workforce in self.workforces]
         return self._states
 
+    @asynccontextmanager
+    async def get_jobq(self) -> AsyncGenerator[JobQ, None]:
+        """
+        Asynchronous context manager to get a JobQ instance.
+
+        This method handles the creation of a JobQ instance from a storage queue or
+        service bus, based on ``self.storage_account``.
+
+        Yields:
+            An instance of JobQ with the appropriate backend based on ``self.storage_account``.
+        """
+        if self.storage_account.startswith("sb://"):
+            async with JobQ.from_service_bus(
+                self.queue_name,
+                fqns=f'{self.storage_account.rsplit("/", maxsplit=1)[1]}.servicebus.windows.net',
+                credential=self.credential,
+            ) as jobq:
+                yield jobq
+        else:
+            async with JobQ.from_storage_queue(
+                self.queue_name,
+                storage_account=self.storage_account,
+                credential=self.credential,
+            ) as jobq:
+                yield jobq
+
     async def determine_number_of_workers(self) -> int:
         """
         Determine the optimal number of workers based on queue size and current state.
@@ -93,23 +118,9 @@ class MultiRegionWorkforce:
         Returns:
             The number of workers to scale to.
         """
-        if self.storage_account.startswith("sb://"):
-            # backend is a servicebus queue
-            async with JobQ.from_service_bus(
-                self.queue_name,
-                fqns=f"{self.storage_account[5:]}.servicebus.windows.net",
-                credential=self.credential,
-            ) as jobq:
-                queue_size = await jobq.get_approximate_size()
-        else:
-            async with JobQ.from_storage_queue(
-                self.queue_name,
-                storage_account=self.storage_account,
-                credential=self.credential,
-            ) as jobq:
-                queue_size = await jobq.get_approximate_size()
-
-        LOG.info(f"Queue size: {queue_size}")
+        async with self.get_jobq() as jobq:
+            queue_size = await jobq.get_approximate_size()
+            LOG.info(f"Queue size: {queue_size}")
 
         if queue_size == 0:
             return 0
@@ -146,55 +157,7 @@ class MultiRegionWorkforce:
             scale_to = min(scale_to, queue_size, self.max_num_workers)
             return scale_to
 
-    def layoff_queued_workers(self, total_to_layoff: int) -> list[int]:
-        """Lays off queued workers up to total_to_layoff and returns the distribution of layoffs over the workforces.
-        Args:
-            total_to_layoff (int): The total number of workers to lay off.
-        Returns:
-            A list of integers representing the number of workers laid off from each workforce.
-        """
-        LOG.info(f"Stopping queued workers, total to stop: {total_to_layoff}.")
-        # scale down by removing queued workers
-        layoff_distribution: list[int] = [0] * len(self.workforces)
-        avg_num_to_layoff = total_to_layoff // len(self.workforces)
-        available_for_layoff_list = [s.num_queued for s in self.states]
-        carry = 0
-
-        # Sort by available capacity to better distribute workers
-        for index, available_for_layoff in sorted(
-            enumerate(available_for_layoff_list), key=lambda e: e[1]
-        ):
-            planned_to_layoff = min(
-                avg_num_to_layoff + carry,
-                available_for_layoff if available_for_layoff > 0 else 0,
-                total_to_layoff - sum(layoff_distribution),
-            )
-            carry += avg_num_to_layoff - planned_to_layoff
-            layoff_distribution[index] = planned_to_layoff
-
-        # layoff workers in parallel for better performance
-        with ThreadPoolExecutor() as executor:
-
-            def layoff_helper(workforce: Workforce, num_workers_to_layoff: int):
-                if num_workers_to_layoff > 0:
-                    LOG.info(f"Stopping {num_workers_to_layoff} workers on cluster {workforce}.")
-                    workforce.lay_off(num_workers_to_layoff)
-
-            layoff_futures: list[Future[Any]] = [
-                executor.submit(layoff_helper, workforce, num_workers_to_hire)
-                for workforce, num_workers_to_hire in zip(
-                    self.workforces, layoff_distribution, strict=True
-                )
-            ]
-            for future in as_completed(layoff_futures):
-                try:
-                    future.result()
-                except Exception:
-                    LOG.exception("layoff of queued workers failed.")
-
-        return layoff_distribution
-
-    async def run(self, scale_to_zero=False, manual_hire: int | None = None) -> bool:
+    async def run(self, scale_to_zero=False) -> bool:
         """
         Run the workforce scaling operation.
 
@@ -203,7 +166,6 @@ class MultiRegionWorkforce:
 
         Args:
             scale_to_zero: If True, scale all workforces to zero.
-            manual_hire: Number of workers to hire. Overwrites autoscaling.
 
         Returns:
             True if the scaling operation was successful, False otherwise.
@@ -224,55 +186,39 @@ class MultiRegionWorkforce:
                     workforce.scale_to(num_workers, with_layoffs=True)
                     LOG.info(f"Scaled {workforce} to {num_workers}.")
 
-                scale_to_futures: list[Future[Any]] = [
-                    executor.submit(scale_to_helper, workforce, num_workers_to_hire)
-                    for workforce, num_workers_to_hire in zip(
-                        self.workforces, [0] * len(self.workforces), strict=True
-                    )
-                ]
-                for future in as_completed(scale_to_futures):
-                    try:
-                        future.result()
-                    except Exception:
-                        LOG.exception("scaling down of workers failed.")
+                executor.map(scale_to_helper, self.workforces, [0] * len(self.workforces))
             return True
 
         # Handle scaling
         total_to_hire = nb_scale_to[0] - total_current
-        if manual_hire is not None:
-            LOG.info(f"Manual hire set to {manual_hire}. Overwriting autoscaling.")
-            total_to_hire = manual_hire
-            for workforce in self.workforces:
-                if manual_hire > 0:
-                    workforce.hire(manual_hire)
-                else:
-                    workforce.lay_off(-manual_hire)
-            return True
 
         LOG.info(f"Scaling to {max(nb_scale_to[0], 0)}, need to hire {total_to_hire}.")
 
         if total_to_hire == 0:
             return True
         if total_to_hire < 0:
-            if currently_queued > 0:
-                layoff_distribution = self.layoff_queued_workers(total_to_layoff=-total_to_hire)
-                if sum(layoff_distribution) == -total_to_hire:
-                    return True
-                # after stopping queued workers, we check if we still need to scale down
-                total_to_hire += sum(layoff_distribution)
-
-            if total_to_hire < 0:
-                # TODO - for layoff of running workers, the new servicebus feature could be used to do graceful shutdown
-                # this is not implemented yet
-                LOG.info(
-                    f"Need to scale down {-total_to_hire} workers, this is currently not implemented."
-                )
-                return False
+            LOG.info(
+                f"Need to scale down {total_to_hire} workers, this is currently not implemented."
+            )
+            return True
 
         # Calculate available capacity for each workforce
         available_for_hire_list = []
         for workforce, current_state in zip(self.workforces, self.states, strict=True):
-            available_for_hire = workforce.get_available_to_hire(current_state=current_state)
+            try:
+                cluster_info = workforce.get_compute_infos().properties.properties
+                max_node_count = cluster_info.scaleSettings["maxNodeCount"]
+            except (RuntimeError, AttributeError, KeyError):
+                # TODO: implement logic for singularity
+                max_node_count = 200
+
+                class ClusterDummy:
+                    targetNodeCount = 0
+
+                cluster_info = ClusterDummy()  # type: ignore
+
+            nb_available = max_node_count - cluster_info.targetNodeCount  # type: ignore[operator]
+            available_for_hire = nb_available - current_state.num_queued  # type: ignore[operator]
             available_for_hire_list.append(available_for_hire)
 
         # Distribute hiring across workforces
@@ -305,17 +251,7 @@ class MultiRegionWorkforce:
                     LOG.info(f"Hiring {num_workers_to_hire} workers on cluster {workforce}.")
                     workforce.hire(num_workers_to_hire)
 
-            hiring_futures: list[Future[Any]] = [
-                executor.submit(hiring_helper, workforce, num_workers_to_hire)
-                for workforce, num_workers_to_hire in zip(
-                    self.workforces, hiring_distribution, strict=True
-                )
-            ]
-            for future in as_completed(hiring_futures):
-                try:
-                    future.result()
-                except Exception:
-                    LOG.exception("hiring of workers failed.")
+            executor.map(hiring_helper, self.workforces, hiring_distribution)
 
         return sum(hiring_distribution) == total_to_hire
 
