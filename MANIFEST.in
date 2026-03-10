@@ -1,1 +1,2 @@
 recursive-include ai4s/jobq/track/assets *
+recursive-include ai4s/jobq/data/skill *

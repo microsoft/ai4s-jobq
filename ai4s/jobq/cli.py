@@ -34,6 +34,7 @@ from ai4s.jobq.entities import EmptyQueue, WorkerCanceled
 from ai4s.jobq.logging_utils import JobQRichHandler, setup_logging
 from ai4s.jobq.orchestration import WorkSpecification, batch_enqueue, get_results
 from ai4s.jobq.orchestration.manager import launch_workers
+from ai4s.jobq.skill_file import skill_file_cmd
 from ai4s.jobq.work import DefaultSeed, ShellCommandProcessor
 
 LOG = logging.getLogger("ai4s.jobq")
@@ -64,6 +65,25 @@ class StorageQueueSpec(BackendSpec):
         return self.storage_account
 
 
+# Commands that don't require a BACKEND_SPEC argument
+_NO_BACKEND_COMMANDS = {"copilot-skill"}
+
+
+class JobQGroup(click.Group):
+    """Custom group that allows some subcommands to skip BACKEND_SPEC."""
+
+    def parse_args(self, ctx, args):
+        # If the first non-option arg is a command that doesn't need BACKEND_SPEC,
+        # insert a placeholder so click doesn't consume the subcommand name as the argument.
+        filtered = [a for a in args if not a.startswith("-")]
+        if filtered and filtered[0] in _NO_BACKEND_COMMANDS:
+            args = list(args)
+            # Insert None-placeholder before the subcommand
+            idx = args.index(filtered[0])
+            args.insert(idx, "__none__")
+        return super().parse_args(ctx, args)
+
+
 class BackendSpecParam(click.ParamType):
     def convert(
         self,
@@ -71,7 +91,7 @@ class BackendSpecParam(click.ParamType):
         param: Optional[click.Parameter],
         ctx: Optional[click.Context],
     ) -> Optional[BackendSpec]:
-        if value is None:
+        if value is None or value == "__none__":
             return None
         if isinstance(value, BackendSpec):
             return value
@@ -248,12 +268,14 @@ class QueueConfig:
             yield queue
 
 
-@click.group()
+@click.group(cls=JobQGroup)
 @click.argument(
     "backend_spec",
     envvar="JOBQ_STORAGE_QUEUE",
     type=BackendSpecParam(),
     metavar="SERVICE/QUEUE_NAME",
+    required=False,
+    default=None,
 )
 @click.option(
     "--conn-str",
@@ -266,7 +288,7 @@ class QueueConfig:
 @click.pass_context
 async def main(
     ctx: click.Context,
-    backend_spec: BackendSpec,
+    backend_spec: Optional[BackendSpec],
     verbose: int,
     quiet: int,
     conn_str: str,
@@ -279,24 +301,28 @@ async def main(
     - sb://<namespace> (Azure Service Bus)
     - <storage-account> (Azure Storage Queue)
     """
-    # log level for ai4s-jobq modules
-    internal_log_level = max(logging.DEBUG, logging.INFO - 10 * (verbose - quiet))
-    # log level for other modules.
-    base_log_level = logging.WARNING
-    if abs(verbose - quiet) >= 2:
-        diff = int(math.copysign(abs(verbose - quiet) - 2, verbose - quiet))
-        base_log_level = max(logging.DEBUG, base_log_level - 10 * diff)
-
-    log_handler = setup_logging(
-        f"{backend_spec}/{backend_spec.name}",
-        internal_log_level=internal_log_level,
-        base_log_level=base_log_level,
-    )
+    _install_copilot_skill()
 
     ctx.ensure_object(QueueConfig)
-    ctx.obj.backend_spec = backend_spec
-    ctx.obj.conn_str = conn_str
-    ctx.obj.log_handler = log_handler
+
+    if backend_spec is not None:
+        # log level for ai4s-jobq modules
+        internal_log_level = max(logging.DEBUG, logging.INFO - 10 * (verbose - quiet))
+        # log level for other modules.
+        base_log_level = logging.WARNING
+        if abs(verbose - quiet) >= 2:
+            diff = int(math.copysign(abs(verbose - quiet) - 2, verbose - quiet))
+            base_log_level = max(logging.DEBUG, base_log_level - 10 * diff)
+
+        log_handler = setup_logging(
+            f"{backend_spec}/{backend_spec.name}",
+            internal_log_level=internal_log_level,
+            base_log_level=base_log_level,
+        )
+
+        ctx.obj.backend_spec = backend_spec
+        ctx.obj.conn_str = conn_str
+        ctx.obj.log_handler = log_handler
 
 
 @main.command("push")
@@ -751,3 +777,47 @@ def _jobq_track_requirements_are_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _install_copilot_skill():  # pragma: no cover
+    """Auto-install the Copilot skill if ~/.copilot/ exists and skill is outdated."""
+    if "copilot-skill" in sys.argv:
+        return
+    if os.environ.get("JOBQ_COPILOT_SKILL", "1").lower() in ("0", "false", "no"):
+        return
+    skill_dir = os.path.join(os.path.expanduser("~"), ".copilot", "skills", "ai4s-jobq-cli")
+    if not os.path.isdir(os.path.join(os.path.expanduser("~"), ".copilot")):
+        return
+    # Honor disabled marker left by 'ai4s-jobq copilot-skill clear'
+    if os.path.exists(os.path.join(skill_dir, ".disabled")):
+        return
+    # Check version stamp to avoid re-installing on every invocation
+    stamp = os.path.join(skill_dir, ".jobq-version")
+    if os.path.exists(stamp):
+        try:
+            with open(stamp) as f:
+                existing = f.read().strip()
+            if existing == __version__:
+                return
+        except Exception:
+            pass
+    try:
+        import shutil
+        from importlib.resources import files as pkg_files
+
+        bundled = pkg_files("ai4s.jobq.data.skill").joinpath("ai4s-jobq-cli")
+        if bundled.is_dir() and bundled.joinpath("SKILL.md").is_file():
+            if os.path.exists(skill_dir):
+                shutil.rmtree(skill_dir)
+            shutil.copytree(str(bundled), skill_dir)
+            with open(stamp, "w") as f:
+                f.write(__version__)
+            LOG.info(
+                "Auto-installed Copilot skill. "
+                "Run 'ai4s-jobq copilot-skill clear' to disable auto-installation."
+            )
+    except Exception:
+        pass
+
+
+main.add_command(skill_file_cmd)

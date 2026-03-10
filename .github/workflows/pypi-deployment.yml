@@ -21,6 +21,10 @@ jobs:
         pip install
         build
         --user
+    - name: Install package and doc dependencies for skill build
+      run: pip install -e .[dev]
+    - name: Build Copilot skill data
+      run: python scripts/build_skill.py
     - name: Build a binary wheel and a source tarball
       run: python3 -m build
     - name: Store the distribution packages
