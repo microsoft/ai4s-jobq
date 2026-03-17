@@ -44,11 +44,10 @@ class _CachedTokenCredential:
         self.token: ty.Optional[AccessToken] = None
 
     async def __aenter__(self) -> "_CachedTokenCredential":
-        await self.credential.__aenter__()
         return self
 
     async def __aexit__(self, *args: ty.Any) -> None:
-        await self.credential.__aexit__(*args)
+        pass
 
     async def get_token(self) -> str:
         if self.token is None or time.time() > self.token.expires_on - 60:
@@ -783,15 +782,19 @@ class ServiceBusRestBackend(JobQBackend):
             wait=wait_exponential_jitter(initial=0.5, max=5, jitter=1),
             reraise=True,
         )
-        async def _get_message_count() -> int:
+        async def _get_message_count() -> ty.Optional[int]:
             async with self._get_admin_client() as aclt:
                 queue_runtime_info = await aclt.get_queue_runtime_properties(
                     queue_name=self.queue_name
                 )
                 if queue_runtime_info is None:
-                    raise AttributeError("get_queue_runtime_properties returned None")
-                ret = queue_runtime_info.active_message_count
-                assert isinstance(ret, int)
+                    return None
+                try:
+                    ret = queue_runtime_info.active_message_count
+                except AttributeError:
+                    return None
+                if not isinstance(ret, int):
+                    return None
                 return ret
 
         return await _get_message_count()

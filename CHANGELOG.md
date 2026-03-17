@@ -2,6 +2,22 @@ CHANGELOG
 =========
 
 
+3.0.1 (2026-03-17)
+------------------
+
+Fixes:
+
+* Fixed retry logic in ``ServiceBusRestBackend.__len__``: the ``AttributeError``
+  raised when Azure returns ``None`` for ``message_count_details`` is now caught
+  and converted to a retryable ``None`` result, so ``tenacity`` actually retries
+  instead of immediately propagating the exception.
+
+* Fixed ``_CachedTokenCredential`` closing the caller-owned credential transport.
+  ``__aenter__``/``__aexit__`` no longer delegate to the wrapped credential,
+  preventing "HTTP transport has already been closed" errors when the same
+  credential is reused across multiple ``ServiceBusRestBackend`` context entries.
+
+
 3.0.0 (2026-02-24)
 ------------------
 
