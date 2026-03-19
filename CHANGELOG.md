@@ -2,6 +2,27 @@ CHANGELOG
 =========
 
 
+3.1.0 (2026-03-19)
+------------------
+
+Features:
+
+* Added GitHub Copilot skill support.  A CLI reference and documentation
+  bundle is now auto-installed to ``~/.copilot/skills/ai4s-jobq-cli/`` on
+  first invocation, giving Copilot rich context about every ``ai4s-jobq``
+  subcommand.
+
+* New ``copilot-skill`` CLI subcommand group (``install``, ``clear``,
+  ``list``) for manual skill management.
+
+* New ``scripts/build_skill.py`` build script that generates ``SKILL.md``
+  from the asyncclick command tree and bundles Sphinx-built documentation
+  references into the package.
+
+* ``BACKEND_SPEC`` is now optional for the top-level CLI group, allowing
+  subcommands like ``copilot-skill`` to run without a queue connection.
+
+
 3.0.2 (2026-03-19)
 ------------------
 
