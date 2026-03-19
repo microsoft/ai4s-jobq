@@ -2,6 +2,18 @@ CHANGELOG
 =========
 
 
+3.0.3 (2026-03-19)
+------------------
+
+Fixes:
+
+* Fixed inconsistent ``queue`` property in Application Insights logs.
+  ``LOG.exception`` and ``LOG.info`` for task failures/retries explicitly set
+  ``queue`` to ``self.full_name`` (e.g. ``livdft.servicebus.windows.net/…``),
+  overriding the ``sb://…`` format set by the ``CustomDimensionsFilter``.
+  Removed the redundant overrides so all log events use the same short format.
+
+
 3.0.2 (2026-03-19)
 ------------------
 

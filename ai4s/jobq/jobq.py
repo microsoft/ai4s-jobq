@@ -438,7 +438,6 @@ class JobQ:
                         "duration_s": duration,
                         "task_id": task.id,
                         "event": "task_failure",
-                        "queue": self.full_name,
                         "log": log,
                     },
                 )
@@ -462,7 +461,6 @@ class JobQ:
                         "task_id": task.id,
                         "event": "task_retry",
                         "num_retries": task.num_retries - 1,
-                        "queue": self.full_name,
                     },
                 )
                 task = replace(task, num_retries=task.num_retries - 1)
