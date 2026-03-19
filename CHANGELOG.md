@@ -2,6 +2,23 @@ CHANGELOG
 =========
 
 
+3.0.2 (2026-03-19)
+------------------
+
+Fixes:
+
+* Fixed dead-lettering in the Service Bus REST backend.  The REST API does
+  not support explicit dead-lettering — the previous implementation silently
+  abandoned messages instead, causing them to cycle back into the main queue
+  until ``MaxDeliveryCount`` was hit.  Dead-lettering now uses a one-off AMQP
+  management link to settle the message using the lock token already held by
+  the REST peek-lock, which is atomic and race-free.
+
+* New queues are now created with ``max_delivery_count=1000`` to prevent
+  Service Bus auto-dead-lettering from interfering with application-level
+  retry logic.
+
+
 3.0.1 (2026-03-17)
 ------------------
 

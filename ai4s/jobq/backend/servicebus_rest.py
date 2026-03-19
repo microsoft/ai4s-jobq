@@ -309,15 +309,52 @@ class ServiceBusRestClient:
         resp.raise_for_status()
         resp.close()
 
-    async def deadletter_message(self, location_url: str, reason: str = "Failed") -> None:
-        """Move a peek-locked message to the dead-letter sub-queue."""
-        extra_headers = {
-            "Content-Type": "application/atom+xml;type=entry;charset=utf-8",
-        }
-        body = json.dumps({"DispositionStatus": "Defered", "DeadLetterReason": reason})
-        resp = await self._request("PUT", location_url, headers=extra_headers, data=body)
-        resp.raise_for_status()
-        resp.close()
+    async def deadletter_message(
+        self,
+        location_url: str,
+        sequence_number: int,
+        lock_token: str,
+        reason: str = "Failed",
+    ) -> None:
+        """Move a peek-locked message to the dead-letter sub-queue via AMQP.
+
+        The Service Bus REST API does not support explicit dead-lettering, so
+        we open a one-off AMQP management link and settle the message using
+        the lock token already held by the REST peek-lock.
+        """
+        from uuid import UUID
+
+        from azure.servicebus import ServiceBusReceiveMode
+        from azure.servicebus._common.constants import (
+            MGMT_REQUEST_DEAD_LETTER_ERROR_DESCRIPTION,
+            MGMT_REQUEST_DEAD_LETTER_REASON,
+            MGMT_REQUEST_DISPOSITION_STATUS,
+            MGMT_REQUEST_LOCK_TOKENS,
+            REQUEST_RESPONSE_UPDATE_DISPOSTION_OPERATION,
+        )
+        from azure.servicebus._transport._pyamqp_transport import PyamqpTransport
+        from azure.servicebus.aio import ServiceBusClient
+
+        async with ServiceBusClient(
+            fully_qualified_namespace=self.fqns,
+            credential=self._credential,
+        ) as sb_client:
+            receiver = sb_client.get_queue_receiver(
+                queue_name=self.queue_name,
+                receive_mode=ServiceBusReceiveMode.PEEK_LOCK,
+            )
+            async with receiver:
+                message = {
+                    MGMT_REQUEST_DISPOSITION_STATUS: "suspended",
+                    MGMT_REQUEST_LOCK_TOKENS: PyamqpTransport.AMQP_ARRAY_VALUE([UUID(lock_token)]),
+                    MGMT_REQUEST_DEAD_LETTER_REASON: reason,
+                    MGMT_REQUEST_DEAD_LETTER_ERROR_DESCRIPTION: "",
+                }
+                await receiver._mgmt_request_response_with_retry(
+                    REQUEST_RESPONSE_UPDATE_DISPOSTION_OPERATION,
+                    message,
+                    lambda *a, **kw: None,
+                )
 
     async def renew_lock(
         self, location_url: str, timeout: ty.Optional[aiohttp.ClientTimeout] = None
@@ -411,6 +448,8 @@ class RESTServiceBusEnvelope(Envelope):
         else:
             await self._client.deadletter_message(
                 self.message.location_url,
+                sequence_number=self.message.sequence_number,
+                lock_token=self.message.lock_token,
                 reason=error or "Failed",
             )
         self.done = True
@@ -735,6 +774,7 @@ class ServiceBusRestBackend(JobQBackend):
                     lock_duration=timedelta(minutes=5),
                     requires_duplicate_detection=True,
                     duplicate_detection_history_time_window=self._duplicate_detection_window,
+                    max_delivery_count=1000,
                 )
                 LOG.info(f"Created queue {self.queue_name}")
             except ResourceExistsError:

@@ -134,7 +134,10 @@ class TestRESTServiceBusEnvelope:
         env = self._make_envelope()
         await env.delete(success=False, error="boom")
         env._client.deadletter_message.assert_awaited_once_with(
-            env.message.location_url, reason="boom"
+            env.message.location_url,
+            sequence_number=env.message.sequence_number,
+            lock_token=env.message.lock_token,
+            reason="boom",
         )
         assert env.done
 
@@ -270,15 +273,38 @@ class TestServiceBusRestClient:
 
     @pytest.mark.asyncio
     async def test_deadletter_message(self):
+        """Dead-lettering settles via AMQP management link using the REST lock token."""
+        from unittest.mock import patch
+
         client = self._make_client()
-        mock_resp = _mock_response(200)
-        mock_session = self._setup_client(client, mock_resp)
+
+        lock_token = "e836f908-afe0-47e3-b06a-509ba4769bed"
+
+        # Mock the AMQP receiver's mgmt request
+        mock_receiver = AsyncMock()
+        mock_receiver._mgmt_request_response_with_retry = AsyncMock()
+        mock_receiver.__aenter__ = AsyncMock(return_value=mock_receiver)
+        mock_receiver.__aexit__ = AsyncMock(return_value=None)
+
+        mock_sb_client = AsyncMock()
+        mock_sb_client.get_queue_receiver = MagicMock(return_value=mock_receiver)
+        mock_sb_client.__aenter__ = AsyncMock(return_value=mock_sb_client)
+        mock_sb_client.__aexit__ = AsyncMock(return_value=None)
+
+        mock_sb_cls = MagicMock(return_value=mock_sb_client)
 
         loc = "https://myns.servicebus.windows.net/testq/messages/1/lock-1"
-        await client.deadletter_message(loc, reason="test fail")
-        call_args = mock_session.request.call_args
-        assert call_args.args[0] == "PUT"
-        assert call_args.args[1] == loc
+        with patch("azure.servicebus.aio.ServiceBusClient", mock_sb_cls):
+            await client.deadletter_message(
+                loc, sequence_number=42, lock_token=lock_token, reason="test fail"
+            )
+
+        # Verify AMQP mgmt link was called with the right disposition
+        mock_receiver._mgmt_request_response_with_retry.assert_awaited_once()
+        call_args = mock_receiver._mgmt_request_response_with_retry.call_args
+        mgmt_message = call_args.args[1]
+        assert mgmt_message["disposition-status"] == "suspended"
+        assert mgmt_message["deadletter-reason"] == "test fail"
 
     @pytest.mark.asyncio
     async def test_renew_lock(self):
