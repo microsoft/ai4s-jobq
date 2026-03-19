@@ -1,7 +1,6 @@
 CHANGELOG
 =========
 
-
 3.1.0 (2026-03-19)
 ------------------
 
@@ -21,6 +20,14 @@ Features:
 
 * ``BACKEND_SPEC`` is now optional for the top-level CLI group, allowing
   subcommands like ``copilot-skill`` to run without a queue connection.
+
+Fixes:
+
+* Fixed inconsistent ``queue`` property in Application Insights logs.
+  ``LOG.exception`` and ``LOG.info`` for task failures/retries explicitly set
+  ``queue`` to ``self.full_name`` (e.g. ``livdft.servicebus.windows.net/…``),
+  overriding the ``sb://…`` format set by the ``CustomDimensionsFilter``.
+  Removed the redundant overrides so all log events use the same short format.
 
 
 3.0.2 (2026-03-19)
