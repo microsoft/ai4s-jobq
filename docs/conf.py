@@ -6,7 +6,11 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 import os
+import sys
 from typing import List
+
+# Ensure local extensions (e.g. md_compat) can be imported
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from ai4s.jobq import __version__ as version
 
@@ -29,8 +33,13 @@ extensions = [
     "sphinx_sitemap",
     "sphinx_prompt",
     "sphinx_copybutton",
-    "sphinx_markdown_builder",
 ]
+
+if os.environ.get("SPHINX_MARKDOWN_BUILDER") == "1":
+    extensions.append("sphinx_markdown_builder")
+    # Replace HTML-producing directives with plain-text alternatives.
+    # md_compat must be loaded after sphinx_prompt so it can override.
+    extensions.append("md_compat")
 
 templates_path = ["_templates"]
 exclude_patterns: List[str] = []
