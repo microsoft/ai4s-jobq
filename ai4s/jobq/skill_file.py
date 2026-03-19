@@ -183,8 +183,7 @@ def skill_file_cmd():
 
 
 @skill_file_cmd.command("install")
-@click.pass_context
-def skill_file_install(ctx):
+def skill_file_install():
     """Install the ai4s-jobq Copilot skill to ~/.copilot/skills/."""
     import logging
     import shutil
@@ -201,8 +200,7 @@ def skill_file_install(ctx):
     # Try to use bundled skill data from package
     bundled = pkg_files("ai4s.jobq.data.skill").joinpath(SKILL_NAME)
     if bundled.is_dir() and bundled.joinpath("SKILL.md").is_file():
-        if os.path.exists(SKILL_DIR):
-            shutil.rmtree(SKILL_DIR)
+        shutil.rmtree(SKILL_DIR, ignore_errors=True)
         shutil.copytree(str(bundled), SKILL_DIR)
         # Write version stamp
         with open(os.path.join(SKILL_DIR, ".jobq-version"), "w") as f:
@@ -214,9 +212,9 @@ def skill_file_install(ctx):
             "Bundled skill data not found. Generating from live CLI tree. "
             "Run 'python scripts/build_skill.py' to include documentation references."
         )
-        # Navigate to the root CLI group
-        root = ctx.parent.parent.command if ctx.parent and ctx.parent.parent else ctx.command
-        content = _generate_skill_md(root)
+        from ai4s.jobq.cli import main
+
+        content = _generate_skill_md(main)
         os.makedirs(SKILL_DIR, exist_ok=True)
         with open(os.path.join(SKILL_DIR, "SKILL.md"), "w") as f:
             f.write(content)
