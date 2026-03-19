@@ -93,7 +93,7 @@ class JobQ:
             raise ValueError("JOBQ_STORAGE environment variable not set.")
         if not jobq_queue:
             raise ValueError("JOBQ_QUEUE environment variable not set.")
-        if "JOBQ_STORAGE".startswith("sb://"):
+        if jobq_storage.startswith("sb://"):
             fqns = jobq_storage[len("sb://") :] + ".servicebus.windows.net"
             async with cls.from_service_bus(
                 jobq_queue,

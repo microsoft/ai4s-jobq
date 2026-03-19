@@ -44,11 +44,10 @@ class _CachedTokenCredential:
         self.token: ty.Optional[AccessToken] = None
 
     async def __aenter__(self) -> "_CachedTokenCredential":
-        await self.credential.__aenter__()
         return self
 
     async def __aexit__(self, *args: ty.Any) -> None:
-        await self.credential.__aexit__(*args)
+        pass
 
     async def get_token(self) -> str:
         if self.token is None or time.time() > self.token.expires_on - 60:
@@ -310,15 +309,52 @@ class ServiceBusRestClient:
         resp.raise_for_status()
         resp.close()
 
-    async def deadletter_message(self, location_url: str, reason: str = "Failed") -> None:
-        """Move a peek-locked message to the dead-letter sub-queue."""
-        extra_headers = {
-            "Content-Type": "application/atom+xml;type=entry;charset=utf-8",
-        }
-        body = json.dumps({"DispositionStatus": "Defered", "DeadLetterReason": reason})
-        resp = await self._request("PUT", location_url, headers=extra_headers, data=body)
-        resp.raise_for_status()
-        resp.close()
+    async def deadletter_message(
+        self,
+        location_url: str,
+        sequence_number: int,
+        lock_token: str,
+        reason: str = "Failed",
+    ) -> None:
+        """Move a peek-locked message to the dead-letter sub-queue via AMQP.
+
+        The Service Bus REST API does not support explicit dead-lettering, so
+        we open a one-off AMQP management link and settle the message using
+        the lock token already held by the REST peek-lock.
+        """
+        from uuid import UUID
+
+        from azure.servicebus import ServiceBusReceiveMode
+        from azure.servicebus._common.constants import (
+            MGMT_REQUEST_DEAD_LETTER_ERROR_DESCRIPTION,
+            MGMT_REQUEST_DEAD_LETTER_REASON,
+            MGMT_REQUEST_DISPOSITION_STATUS,
+            MGMT_REQUEST_LOCK_TOKENS,
+            REQUEST_RESPONSE_UPDATE_DISPOSTION_OPERATION,
+        )
+        from azure.servicebus._transport._pyamqp_transport import PyamqpTransport
+        from azure.servicebus.aio import ServiceBusClient
+
+        async with ServiceBusClient(
+            fully_qualified_namespace=self.fqns,
+            credential=self._credential,
+        ) as sb_client:
+            receiver = sb_client.get_queue_receiver(
+                queue_name=self.queue_name,
+                receive_mode=ServiceBusReceiveMode.PEEK_LOCK,
+            )
+            async with receiver:
+                message = {
+                    MGMT_REQUEST_DISPOSITION_STATUS: "suspended",
+                    MGMT_REQUEST_LOCK_TOKENS: PyamqpTransport.AMQP_ARRAY_VALUE([UUID(lock_token)]),
+                    MGMT_REQUEST_DEAD_LETTER_REASON: reason,
+                    MGMT_REQUEST_DEAD_LETTER_ERROR_DESCRIPTION: "",
+                }
+                await receiver._mgmt_request_response_with_retry(
+                    REQUEST_RESPONSE_UPDATE_DISPOSTION_OPERATION,
+                    message,
+                    lambda *a, **kw: None,
+                )
 
     async def renew_lock(
         self, location_url: str, timeout: ty.Optional[aiohttp.ClientTimeout] = None
@@ -412,6 +448,8 @@ class RESTServiceBusEnvelope(Envelope):
         else:
             await self._client.deadletter_message(
                 self.message.location_url,
+                sequence_number=self.message.sequence_number,
+                lock_token=self.message.lock_token,
                 reason=error or "Failed",
             )
         self.done = True
@@ -736,6 +774,7 @@ class ServiceBusRestBackend(JobQBackend):
                     lock_duration=timedelta(minutes=5),
                     requires_duplicate_detection=True,
                     duplicate_detection_history_time_window=self._duplicate_detection_window,
+                    max_delivery_count=1000,
                 )
                 LOG.info(f"Created queue {self.queue_name}")
             except ResourceExistsError:
@@ -783,15 +822,19 @@ class ServiceBusRestBackend(JobQBackend):
             wait=wait_exponential_jitter(initial=0.5, max=5, jitter=1),
             reraise=True,
         )
-        async def _get_message_count() -> int:
+        async def _get_message_count() -> ty.Optional[int]:
             async with self._get_admin_client() as aclt:
                 queue_runtime_info = await aclt.get_queue_runtime_properties(
                     queue_name=self.queue_name
                 )
                 if queue_runtime_info is None:
-                    raise AttributeError("get_queue_runtime_properties returned None")
-                ret = queue_runtime_info.active_message_count
-                assert isinstance(ret, int)
+                    return None
+                try:
+                    ret = queue_runtime_info.active_message_count
+                except AttributeError:
+                    return None
+                if not isinstance(ret, int):
+                    return None
                 return ret
 
         return await _get_message_count()
