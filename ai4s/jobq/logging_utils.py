@@ -32,7 +32,9 @@ def _azureml_run_description() -> dict[str, str]:
             "azureml_project_name": os.environ.get("AZUREML_ARM_PROJECT_NAME", ""),
         }
     else:
-        return {}
+        # we are using the azureml_workspace_name in grafana dashboards to visualize queue status
+        # which is why we set AZUREML_ARM_WORKSPACE_NAME also for e.g. azureml batch jobs
+        return {"azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", "")}
 
 
 async def flush_app_insights():
