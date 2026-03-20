@@ -10,6 +10,9 @@ Fixes:
   failures in ``get_approximate_size()`` no longer kill the heartbeat task
   (previously surfaced as "Task exception was never retrieved").
 
+* Increase retry attempts for ``get_approximate_size()`` from 3 to 10 to
+  better tolerate transient Service Bus admin API failures.
+
 3.2.0 (2026-03-20)
 ------------------
 

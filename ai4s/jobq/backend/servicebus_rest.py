@@ -818,7 +818,7 @@ class ServiceBusRestBackend(JobQBackend):
     async def __len__(self) -> int:
         @retry(
             retry=retry_if_result(lambda r: r is None),
-            stop=stop_after_attempt(3),
+            stop=stop_after_attempt(10),
             wait=wait_exponential_jitter(initial=0.5, max=5, jitter=1),
             reraise=True,
         )
