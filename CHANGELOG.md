@@ -1,6 +1,15 @@
 CHANGELOG
 =========
 
+3.3.1 (2026-03-20)
+------------------
+
+Fixes:
+
+* Handle ``tenacity.RetryError`` in the worker heartbeat so that transient
+  failures in ``get_approximate_size()`` no longer kill the heartbeat task
+  (previously surfaced as "Task exception was never retrieved").
+
 3.2.0 (2026-03-20)
 ------------------
 
