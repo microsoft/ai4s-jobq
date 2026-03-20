@@ -10,6 +10,24 @@ Features:
   even when ``AZUREML_RUN_ID`` is not set (e.g. AzureML batch jobs), so
   Grafana dashboards can filter by workspace for all job types.
 
+Fixes:
+
+* Handle ``tenacity.RetryError`` in the worker heartbeat so that transient
+  failures in ``get_approximate_size()`` no longer kill the heartbeat task
+  (previously surfaced as "Task exception was never retrieved").
+
+* Increase retry attempts for ``get_approximate_size()`` from 3 to 10 to
+  better tolerate transient Service Bus admin API failures.
+
+3.2.0 (2026-03-20)
+------------------
+
+Features:
+
+* Include ``azureml_workspace_name`` in Application Insights custom dimensions
+  even when ``AZUREML_RUN_ID`` is not set (e.g. AzureML batch jobs), so
+  Grafana dashboards can filter by workspace for all job types.
+
 3.1.0 (2026-03-19)
 ------------------
 

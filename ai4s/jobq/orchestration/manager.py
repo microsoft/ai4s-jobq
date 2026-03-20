@@ -16,6 +16,7 @@ import aiohttp.client_exceptions
 import psutil
 import rich.progress
 from azure.core.exceptions import ServiceResponseError
+from tenacity import RetryError
 
 try:
     from opentelemetry.trace import get_tracer
@@ -696,7 +697,7 @@ async def _call_periodically(
 async def worker_heartbeat_fn(worker_id: str, queue: JobQ, environment_name: str) -> None:
     try:
         queue_size = await queue.get_approximate_size()
-    except (ServiceResponseError, aiohttp.client_exceptions.ClientConnectorError):
+    except (ServiceResponseError, aiohttp.client_exceptions.ClientConnectorError, RetryError):
         queue_size = -1
     LOG.info(
         "Worker is still running. Approximate queue size=%d.",
