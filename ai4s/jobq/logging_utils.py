@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+import contextvars
 import logging
 import os
 import sys
@@ -80,12 +81,20 @@ class SkipTaskLogsFilter(logging.Filter):
         return not record.name.startswith("task.")
 
 
+_context_dimensions: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
+    "_context_dimensions", default={}
+)
+
+
 class CustomDimensionsFilter(logging.Filter):
     def __init__(self, custom_dimensions=None):
         self.custom_dimensions = custom_dimensions or {}
 
     def filter(self, record):
+        # Start with static (process-wide) dimensions
         cdim = self.custom_dimensions.copy()
+        # Layer on per-coroutine context dimensions (override static ones)
+        cdim.update(_context_dimensions.get())
         for key, value in cdim.items():
             if getattr(record, key, None) is not None:
                 continue
@@ -97,13 +106,25 @@ _custom_dimensions_filter: CustomDimensionsFilter | None = None
 
 
 def set_custom_dimensions(**kwargs: str) -> None:
-    """Add custom dimensions that will be automatically included in all log records.
+    """Add process-wide custom dimensions that will be included in all log records.
 
-    This is useful for adding context like worker_id that should be present on every log entry,
-    rather than passing it manually via extra={} on each logging call.
+    These are shared across all async tasks in the current process.
+    For per-coroutine dimensions (e.g. a unique worker_id per async worker),
+    use ``set_context_dimensions()`` instead.
     """
     if _custom_dimensions_filter is not None:
         _custom_dimensions_filter.custom_dimensions.update(kwargs)
+
+
+def set_context_dimensions(**kwargs: str) -> None:
+    """Set per-coroutine custom dimensions that will be included in log records.
+
+    Uses ``contextvars`` so each ``asyncio.Task`` gets its own copy.
+    Values set here override the process-wide dimensions from ``set_custom_dimensions()``.
+    """
+    ctx = _context_dimensions.get().copy()
+    ctx.update(kwargs)
+    _context_dimensions.set(ctx)
 
 
 class CachingLogHandler(logging.Handler):

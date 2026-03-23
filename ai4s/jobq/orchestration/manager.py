@@ -34,7 +34,11 @@ from functools import wraps
 from itertools import chain
 
 from ai4s.jobq import EmptyQueue, JobQ, JobQFuture, Response, WorkerCanceled, WorkSpecification
-from ai4s.jobq.logging_utils import flush_app_insights, set_custom_dimensions
+from ai4s.jobq.logging_utils import (
+    flush_app_insights,
+    set_context_dimensions,
+    set_custom_dimensions,
+)
 from ai4s.jobq.orchestration.workforce_monitor import workforce_monitor
 from ai4s.jobq.scheduled_events import PreemptionEventHandler
 from ai4s.jobq.work import EnqueueStats, Processor
@@ -533,6 +537,8 @@ async def launch_workers(
         )
 
         async def worker(idx: int) -> None:
+            worker_id_for_task = f"{worker_id}:{idx}" if num_workers > 1 else str(worker_id)
+            set_context_dimensions(worker_id=worker_id_for_task)
             num_consecutive_failures = 0
             soft_limit_time = datetime.now() + time_limit
             async with AsyncExitStack() as worker_stack:
@@ -541,7 +547,7 @@ async def launch_workers(
                         TRACE.start_as_current_span("ai4s.jobq.worker")
                     )
                     if worker_id:
-                        span.set_attribute("worker_id", worker_id)
+                        span.set_attribute("worker_id", worker_id_for_task)
                     span.set_attribute("asyncio_idx", idx)
                     span.set_attribute("queue", queue.full_name)
                     span.set_attribute("environment", os.environ.get("JOBQ_ENVIRONMENT_NAME", ""))
