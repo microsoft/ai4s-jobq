@@ -14,13 +14,16 @@ Features:
   them through every ``extra={…}`` dict.
 
 * Added ``set_context_dimensions()`` for per-coroutine logging dimensions
-  using ``contextvars``.  Each async worker now gets a unique ``worker_id``
-  (``<node_id>:<idx>`` when ``num_workers > 1``) so log records can be
-  attributed to individual workers rather than just the node.
+  using ``contextvars``.  
 
 * ``CustomDimensionsFilter`` is now always attached to the ``LOG`` and
   ``TASK_LOG`` loggers (previously it was only created when an Application
   Insights connection string was present).
+
+Fixes:
+* Each async worker now gets a unique ``worker_id``
+  (``<node_id>:<idx>`` when ``num_workers > 1``) so log records can be
+  attributed to individual workers rather than just the node.
 
 3.2.0 (2026-03-20)
 ------------------
