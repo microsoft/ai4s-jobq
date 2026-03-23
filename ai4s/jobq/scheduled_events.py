@@ -130,7 +130,6 @@ class PreemptionEventHandler(ScheduledEventHandler):
                     f"Preemption event detected! Event ID: {event.EventId!r}, "
                     f"Not Before: {event.NotBefore!r}, Description: {event.Description!r}",
                     extra={
-                        "worker_id": self.worker_id,
                         "event": "preemption_detected",
                     },
                 )
@@ -144,7 +143,6 @@ class PreemptionEventHandler(ScheduledEventHandler):
             LOG.warning(
                 "Preemption event is not present anymore, apparently it's obsolete.",
                 extra={
-                    "worker_id": self.worker_id,
                     "event": "preemption_cleared",
                 },
             )

@@ -1,6 +1,21 @@
 CHANGELOG
 =========
 
+3.3.0 (2026-03-23)
+------------------
+
+Features:
+
+* Moved ``worker_id`` and other per-call logging extras into
+  ``CustomDimensionsFilter`` so they are automatically attached to every log
+  record.  A new ``set_custom_dimensions()`` helper in ``logging_utils``
+  lets callers register dimensions once instead of threading them through
+  every ``extra={…}`` dict.
+
+* ``CustomDimensionsFilter`` is now always attached to the ``LOG`` and
+  ``TASK_LOG`` loggers (previously it was only created when an Application
+  Insights connection string was present).
+
 3.2.0 (2026-03-20)
 ------------------
 

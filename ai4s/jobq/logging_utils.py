@@ -24,17 +24,26 @@ TRACK_LOG = logging.getLogger("ai4s.jobq.track")
 def _azureml_run_description() -> dict[str, str]:
     """Returns a dict describing the AzureML run running the jobq worker."""
     if run_id := os.environ.get("AZUREML_RUN_ID"):
+        workspace_scope = os.getenv("AZUREML_WORKSPACE_SCOPE")
+        sub_id = os.environ.get("AZUREML_ARM_SUBSCRIPTION", "")
+        resource_group = os.environ.get("AZUREML_ARM_RESOURCEGROUP", "")
+        workspace_name = os.environ.get("AZUREML_ARM_WORKSPACE_NAME", "")
         return {
             "azureml_run_id": run_id,
-            "azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", ""),
-            "azureml_subscription_id": os.environ.get("AZUREML_ARM_SUBSCRIPTION", ""),
-            "azureml_resource_group": os.environ.get("AZUREML_ARM_RESOURCEGROUP", ""),
+            "azureml_workspace_name": workspace_name,
+            "azureml_subscription_id": sub_id,
+            "azureml_resource_group": resource_group,
             "azureml_project_name": os.environ.get("AZUREML_ARM_PROJECT_NAME", ""),
+            "azureml_url": f"https://ml.azure.com/runs/{run_id}?wsid={workspace_scope}",
+            "job_url": f"https://ml.azure.com/runs/{run_id}?wsid=/subscriptions/{sub_id}/resourcegroups/{resource_group}/workspaces/{workspace_name}",
         }
     else:
         # we are using the azureml_workspace_name in grafana dashboards to visualize queue status
         # which is why we set AZUREML_ARM_WORKSPACE_NAME also for e.g. azureml batch jobs
-        return {"azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", "")}
+        return {
+            "azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", ""),
+            "job_url": os.environ.get("AZUREML_JOB_URL", ""),
+        }
 
 
 async def flush_app_insights():
@@ -82,6 +91,19 @@ class CustomDimensionsFilter(logging.Filter):
                 continue
             setattr(record, key, value)
         return True
+
+
+_custom_dimensions_filter: CustomDimensionsFilter | None = None
+
+
+def set_custom_dimensions(**kwargs: str) -> None:
+    """Add custom dimensions that will be automatically included in all log records.
+
+    This is useful for adding context like worker_id that should be present on every log entry,
+    rather than passing it manually via extra={} on each logging call.
+    """
+    if _custom_dimensions_filter is not None:
+        _custom_dimensions_filter.custom_dimensions.update(kwargs)
 
 
 class CachingLogHandler(logging.Handler):
@@ -225,6 +247,15 @@ def setup_logging(
         "APPLICATIONINSIGHTS_CONNECTION_STRING"
     )
     environment = environment or os.environ.get("JOBQ_ENVIRONMENT_NAME")
+
+    global _custom_dimensions_filter
+    custom_dims = {"queue": queue_spec} | _azureml_run_description()
+    if environment:
+        custom_dims["environment"] = environment
+    _custom_dimensions_filter = CustomDimensionsFilter(custom_dims)
+    LOG.addFilter(_custom_dimensions_filter)
+    TASK_LOG.addFilter(_custom_dimensions_filter)
+
     if connstr:
         try:
             from azure.monitor.opentelemetry import configure_azure_monitor
@@ -253,14 +284,7 @@ def setup_logging(
             )
             azure_handler = logging.getLogger().handlers[-1]
             azure_handler.addFilter(SkipTaskLogsFilter())
-
-            custom_dims = {"queue": queue_spec} | _azureml_run_description()
-            if environment:
-                custom_dims["environment"] = environment
-            flt = CustomDimensionsFilter(custom_dims)
-            LOG.addFilter(flt)
-            TASK_LOG.addFilter(flt)
-            azure_handler.addFilter(flt)
+            azure_handler.addFilter(_custom_dimensions_filter)
 
     LOG.setLevel(internal_log_level)
     TRACK_LOG.setLevel(internal_log_level)
