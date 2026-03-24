@@ -104,14 +104,12 @@ class PreemptionEventHandler(ScheduledEventHandler):
     def __init__(
         self,
         shutdown_event: asyncio.Event,
-        worker_id: str | None = None,
         queue: JobQ | None = None,
         environment_name: str | None = None,
         *args,
         **kwargs,
     ):
         self.shutdown_event = shutdown_event
-        self.worker_id = worker_id
         self.queue = queue
         self.environment_name = environment_name
 

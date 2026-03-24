@@ -103,6 +103,7 @@ class CustomDimensionsFilter(logging.Filter):
 
 
 _custom_dimensions_filter: CustomDimensionsFilter | None = None
+_pending_custom_dimensions: dict[str, str] = {}
 
 
 def set_custom_dimensions(**kwargs: str) -> None:
@@ -111,9 +112,14 @@ def set_custom_dimensions(**kwargs: str) -> None:
     These are shared across all async tasks in the current process.
     For per-coroutine dimensions (e.g. a unique worker_id per async worker),
     use ``set_context_dimensions()`` instead.
+
+    Can be called before ``setup_logging()``; dimensions will be buffered and
+    applied once logging is initialised.
     """
     if _custom_dimensions_filter is not None:
         _custom_dimensions_filter.custom_dimensions.update(kwargs)
+    else:
+        _pending_custom_dimensions.update(kwargs)
 
 
 def set_context_dimensions(**kwargs: str) -> None:
@@ -273,6 +279,8 @@ def setup_logging(
     custom_dims = {"queue": queue_spec} | _azureml_run_description()
     if environment:
         custom_dims["environment"] = environment
+    custom_dims.update(_pending_custom_dimensions)
+    _pending_custom_dimensions.clear()
     _custom_dimensions_filter = CustomDimensionsFilter(custom_dims)
     LOG.addFilter(_custom_dimensions_filter)
     TASK_LOG.addFilter(_custom_dimensions_filter)

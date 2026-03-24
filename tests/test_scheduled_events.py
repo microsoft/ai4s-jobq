@@ -58,7 +58,9 @@ async def test_aml_preemption_signal_endpoint_canceled(mocker):
 
     poll_interval_seconds = 1
 
-    async with PreemptionEventHandler(shutdown_event, poll_interval_seconds) as handler:
+    async with PreemptionEventHandler(
+        shutdown_event, poll_interval_seconds=poll_interval_seconds
+    ) as handler:
         # Ensure the session is created
         assert handler._session is not None
 
@@ -116,7 +118,9 @@ async def test_aml_preemption_signal_endpoint(mocker):
 
     poll_interval_seconds = 1
 
-    async with PreemptionEventHandler(shutdown_event, poll_interval_seconds) as handler:
+    async with PreemptionEventHandler(
+        shutdown_event, poll_interval_seconds=poll_interval_seconds
+    ) as handler:
         # Ensure the session is created
         assert handler._session is not None
 
@@ -169,7 +173,9 @@ async def test_aml_preemption_signal_endpoint_crash(mocker, caplog):
 
     poll_interval_seconds = 1
 
-    async with PreemptionEventHandler(shutdown_event, poll_interval_seconds) as handler:
+    async with PreemptionEventHandler(
+        shutdown_event, poll_interval_seconds=poll_interval_seconds
+    ) as handler:
         mocker.patch(
             "ai4s.jobq.scheduled_events.aiohttp.ClientSession.get",
             return_value=MockCrashResponse(dict(Events=[]), 500),

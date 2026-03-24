@@ -14,7 +14,7 @@ Features:
   them through every ``extra={…}`` dict.
 
 * Added ``set_context_dimensions()`` for per-coroutine logging dimensions
-  using ``contextvars``.  
+  using ``contextvars``.
 
 * ``CustomDimensionsFilter`` is now always attached to the ``LOG`` and
   ``TASK_LOG`` loggers (previously it was only created when an Application

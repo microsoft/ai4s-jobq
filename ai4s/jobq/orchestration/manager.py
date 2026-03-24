@@ -328,7 +328,6 @@ async def launch_workers(
         await stack.enter_async_context(
             PreemptionEventHandler(
                 shutdown_event=shutdown_event,
-                worker_id=str(worker_id),
                 queue=queue,
                 environment_name=environment_name,
                 poll_interval_seconds=1,
@@ -584,7 +583,7 @@ async def launch_workers(
                             processor,
                             visibility_timeout=visibility_timeout,
                             with_heartbeat=with_heartbeat,
-                            worker_id=worker_id,
+                            worker_id=worker_id_for_task,
                             worker_interface=worker_interface,
                         )
                         # convert coro to a task
