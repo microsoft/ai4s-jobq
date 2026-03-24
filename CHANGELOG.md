@@ -1,6 +1,30 @@
 CHANGELOG
 =========
 
+3.3.0 (2026-03-24)
+------------------
+
+Features:
+
+* Set `job_url` from environment variable if not running on azureml, so that the grafana dashboard links to the correct job details page even for non-azureml jobs.
+* Moved ``worker_id`` and other per-call logging extras into
+  ``CustomDimensionsFilter`` so they are automatically attached to every log
+  record.  A new ``set_custom_dimensions()`` helper in ``logging_utils``
+  lets callers register process-wide dimensions once instead of threading
+  them through every ``extra={…}`` dict.
+
+* Added ``set_context_dimensions()`` for per-coroutine logging dimensions
+  using ``contextvars``.
+
+* ``CustomDimensionsFilter`` is now always attached to the ``LOG`` and
+  ``TASK_LOG`` loggers (previously it was only created when an Application
+  Insights connection string was present).
+
+Fixes:
+* Each async worker now gets a unique ``worker_id``
+  (``<node_id>:<idx>`` when ``num_workers > 1``) so log records can be
+  attributed to individual workers rather than just the node.
+
 3.2.0 (2026-03-20)
 ------------------
 

@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+import contextvars
 import logging
 import os
 import sys
@@ -24,17 +25,26 @@ TRACK_LOG = logging.getLogger("ai4s.jobq.track")
 def _azureml_run_description() -> dict[str, str]:
     """Returns a dict describing the AzureML run running the jobq worker."""
     if run_id := os.environ.get("AZUREML_RUN_ID"):
+        workspace_scope = os.getenv("AZUREML_WORKSPACE_SCOPE")
+        sub_id = os.environ.get("AZUREML_ARM_SUBSCRIPTION", "")
+        resource_group = os.environ.get("AZUREML_ARM_RESOURCEGROUP", "")
+        workspace_name = os.environ.get("AZUREML_ARM_WORKSPACE_NAME", "")
         return {
             "azureml_run_id": run_id,
-            "azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", ""),
-            "azureml_subscription_id": os.environ.get("AZUREML_ARM_SUBSCRIPTION", ""),
-            "azureml_resource_group": os.environ.get("AZUREML_ARM_RESOURCEGROUP", ""),
+            "azureml_workspace_name": workspace_name,
+            "azureml_subscription_id": sub_id,
+            "azureml_resource_group": resource_group,
             "azureml_project_name": os.environ.get("AZUREML_ARM_PROJECT_NAME", ""),
+            "azureml_url": f"https://ml.azure.com/runs/{run_id}?wsid={workspace_scope}",
+            "job_url": f"https://ml.azure.com/runs/{run_id}?wsid=/subscriptions/{sub_id}/resourcegroups/{resource_group}/workspaces/{workspace_name}",
         }
     else:
         # we are using the azureml_workspace_name in grafana dashboards to visualize queue status
         # which is why we set AZUREML_ARM_WORKSPACE_NAME also for e.g. azureml batch jobs
-        return {"azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", "")}
+        return {
+            "azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", ""),
+            "job_url": os.environ.get("AZUREML_JOB_URL", ""),
+        }
 
 
 async def flush_app_insights():
@@ -71,17 +81,56 @@ class SkipTaskLogsFilter(logging.Filter):
         return not record.name.startswith("task.")
 
 
+_context_dimensions: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
+    "_context_dimensions", default={}
+)
+
+
 class CustomDimensionsFilter(logging.Filter):
     def __init__(self, custom_dimensions=None):
         self.custom_dimensions = custom_dimensions or {}
 
     def filter(self, record):
+        # Start with static (process-wide) dimensions
         cdim = self.custom_dimensions.copy()
+        # Layer on per-coroutine context dimensions (override static ones)
+        cdim.update(_context_dimensions.get())
         for key, value in cdim.items():
             if getattr(record, key, None) is not None:
                 continue
             setattr(record, key, value)
         return True
+
+
+_custom_dimensions_filter: CustomDimensionsFilter | None = None
+_pending_custom_dimensions: dict[str, str] = {}
+
+
+def set_custom_dimensions(**kwargs: str) -> None:
+    """Add process-wide custom dimensions that will be included in all log records.
+
+    These are shared across all async tasks in the current process.
+    For per-coroutine dimensions (e.g. a unique worker_id per async worker),
+    use ``set_context_dimensions()`` instead.
+
+    Can be called before ``setup_logging()``; dimensions will be buffered and
+    applied once logging is initialised.
+    """
+    if _custom_dimensions_filter is not None:
+        _custom_dimensions_filter.custom_dimensions.update(kwargs)
+    else:
+        _pending_custom_dimensions.update(kwargs)
+
+
+def set_context_dimensions(**kwargs: str) -> None:
+    """Set per-coroutine custom dimensions that will be included in log records.
+
+    Uses ``contextvars`` so each ``asyncio.Task`` gets its own copy.
+    Values set here override the process-wide dimensions from ``set_custom_dimensions()``.
+    """
+    ctx = _context_dimensions.get().copy()
+    ctx.update(kwargs)
+    _context_dimensions.set(ctx)
 
 
 class CachingLogHandler(logging.Handler):
@@ -225,6 +274,17 @@ def setup_logging(
         "APPLICATIONINSIGHTS_CONNECTION_STRING"
     )
     environment = environment or os.environ.get("JOBQ_ENVIRONMENT_NAME")
+
+    global _custom_dimensions_filter
+    custom_dims = {"queue": queue_spec} | _azureml_run_description()
+    if environment:
+        custom_dims["environment"] = environment
+    custom_dims.update(_pending_custom_dimensions)
+    _pending_custom_dimensions.clear()
+    _custom_dimensions_filter = CustomDimensionsFilter(custom_dims)
+    LOG.addFilter(_custom_dimensions_filter)
+    TASK_LOG.addFilter(_custom_dimensions_filter)
+
     if connstr:
         try:
             from azure.monitor.opentelemetry import configure_azure_monitor
@@ -253,14 +313,7 @@ def setup_logging(
             )
             azure_handler = logging.getLogger().handlers[-1]
             azure_handler.addFilter(SkipTaskLogsFilter())
-
-            custom_dims = {"queue": queue_spec} | _azureml_run_description()
-            if environment:
-                custom_dims["environment"] = environment
-            flt = CustomDimensionsFilter(custom_dims)
-            LOG.addFilter(flt)
-            TASK_LOG.addFilter(flt)
-            azure_handler.addFilter(flt)
+            azure_handler.addFilter(_custom_dimensions_filter)
 
     LOG.setLevel(internal_log_level)
     TRACK_LOG.setLevel(internal_log_level)

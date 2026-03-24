@@ -34,7 +34,11 @@ from functools import wraps
 from itertools import chain
 
 from ai4s.jobq import EmptyQueue, JobQ, JobQFuture, Response, WorkerCanceled, WorkSpecification
-from ai4s.jobq.logging_utils import flush_app_insights
+from ai4s.jobq.logging_utils import (
+    flush_app_insights,
+    set_context_dimensions,
+    set_custom_dimensions,
+)
 from ai4s.jobq.orchestration.workforce_monitor import workforce_monitor
 from ai4s.jobq.scheduled_events import PreemptionEventHandler
 from ai4s.jobq.work import EnqueueStats, Processor
@@ -271,13 +275,14 @@ async def launch_workers(
     if worker_id is None:
         worker_id = uuid.uuid4().hex
 
+    set_custom_dimensions(worker_id=str(worker_id))
+
     async with AsyncExitStack() as stack:
         # Periodic log message that is used in the Grafana dashboard to report # active users
         # todo: consider using utilities.async_utils.call_periodically instead
         await stack.enter_async_context(
             _call_periodically(
                 lambda: worker_heartbeat_fn(
-                    worker_id=str(worker_id),
                     queue=queue,
                     environment_name=environment_name,
                 ),
@@ -323,7 +328,6 @@ async def launch_workers(
         await stack.enter_async_context(
             PreemptionEventHandler(
                 shutdown_event=shutdown_event,
-                worker_id=str(worker_id),
                 queue=queue,
                 environment_name=environment_name,
                 poll_interval_seconds=1,
@@ -366,7 +370,6 @@ async def launch_workers(
                 LOG.info(
                     "Hard shutdown requested, will not wait for a potentially impeding preemption.",
                     extra={
-                        "worker_id": worker_id,
                         "event": "hard_shutdown_requested",
                     },
                 )
@@ -376,7 +379,6 @@ async def launch_workers(
                     LOG.info(
                         "Soft shutdown requested. Will not accept additional tasks, cancel current one(s). In case of a preemption, will sleep until the preemption happens.",
                         extra={
-                            "worker_id": worker_id,
                             "event": "soft_shutdown_requested",
                         },
                     )
@@ -384,7 +386,6 @@ async def launch_workers(
                     LOG.info(
                         "Soft shutdown requested. Will not accept additional tasks and sleep until this process is terminated.",
                         extra={
-                            "worker_id": worker_id,
                             "event": "soft_shutdown_requested_without_cancelling",
                         },
                     )
@@ -444,13 +445,13 @@ async def launch_workers(
             if hard_stop_event.is_set():
                 LOG.info(
                     "Hard stop event set. Will not resume work.",
-                    extra={"worker_id": worker_id, "event": "processor_hard_stop"},
+                    extra={"event": "processor_hard_stop"},
                 )
                 return True
             if not flag_resume_if_not_killed:
                 LOG.info(
                     "Not accepting new tasks.",
-                    extra={"worker_id": worker_id, "event": "processor_not_accepting_tasks"},
+                    extra={"event": "processor_not_accepting_tasks"},
                 )
                 return True
 
@@ -458,13 +459,13 @@ async def launch_workers(
                 # Azure decided that the announced preemption is not going to happen
                 LOG.info(
                     "Shutdown event not set (anymore). Resuming work.",
-                    extra={"worker_id": worker_id, "event": "processor_resuming_work"},
+                    extra={"event": "processor_resuming_work"},
                 )
             else:
                 # Azure still says preemption will happen but we did not see any preemption within timeout
                 LOG.info(
                     "Shutdown event still set but preemption did not happen within timeout. Resuming work.",
-                    extra={"worker_id": worker_id, "event": "processor_timeout"},
+                    extra={"event": "processor_timeout"},
                 )
 
             shutdown_event.clear()
@@ -535,6 +536,8 @@ async def launch_workers(
         )
 
         async def worker(idx: int) -> None:
+            worker_id_for_task = f"{worker_id}:{idx}" if num_workers > 1 else str(worker_id)
+            set_context_dimensions(worker_id=worker_id_for_task)
             num_consecutive_failures = 0
             soft_limit_time = datetime.now() + time_limit
             async with AsyncExitStack() as worker_stack:
@@ -543,7 +546,7 @@ async def launch_workers(
                         TRACE.start_as_current_span("ai4s.jobq.worker")
                     )
                     if worker_id:
-                        span.set_attribute("worker_id", worker_id)
+                        span.set_attribute("worker_id", worker_id_for_task)
                     span.set_attribute("asyncio_idx", idx)
                     span.set_attribute("queue", queue.full_name)
                     span.set_attribute("environment", os.environ.get("JOBQ_ENVIRONMENT_NAME", ""))
@@ -580,7 +583,7 @@ async def launch_workers(
                             processor,
                             visibility_timeout=visibility_timeout,
                             with_heartbeat=with_heartbeat,
-                            worker_id=worker_id,
+                            worker_id=worker_id_for_task,
                             worker_interface=worker_interface,
                         )
                         # convert coro to a task
@@ -694,7 +697,7 @@ async def _call_periodically(
 # We periodically log a 'heartbeat' message to indicate that the worker is still running.
 # This is used for dashboarding.
 @_async_catch_and_print_exc
-async def worker_heartbeat_fn(worker_id: str, queue: JobQ, environment_name: str) -> None:
+async def worker_heartbeat_fn(queue: JobQ, environment_name: str) -> None:
     try:
         queue_size = await queue.get_approximate_size()
     except (ServiceResponseError, aiohttp.client_exceptions.ClientConnectorError, RetryError):
@@ -703,7 +706,6 @@ async def worker_heartbeat_fn(worker_id: str, queue: JobQ, environment_name: str
         "Worker is still running. Approximate queue size=%d.",
         queue_size,
         extra={
-            "worker_id": worker_id,
             "cpu_util": psutil.cpu_percent() / 100,
             "memory_util": psutil.virtual_memory().percent / 100,
             "queue_size": queue_size,
