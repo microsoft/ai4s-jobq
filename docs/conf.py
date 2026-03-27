@@ -66,7 +66,7 @@ html_theme_options = {
 
 html_context = {
     "display_github": True,  # Integrate GitHub
-    "github_user": "msr-ai4science",
+    "github_user": "microsoft",
     "github_repo": "ai4s-jobq",
     "github_version": "main",  # or 'master' or any branch
     "conf_py_path": "/docs/",  # Path in the repo to your documentation source files
