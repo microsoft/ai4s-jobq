@@ -1,6 +1,13 @@
 CHANGELOG
 =========
 
+3.4.0 (2026-03-30)
+------------------
+
+Features:
+
+* Listen for preemptions on native Azure Batch.
+
 3.3.0 (2026-03-24)
 ------------------
 

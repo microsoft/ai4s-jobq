@@ -151,5 +151,6 @@ class PreemptionEventHandler(ScheduledEventHandler):
 
 def running_on_azure() -> bool:
     # To check if we are on Azure, we check if an environment variable from
-    # Azure Batch (backend of AzureML) is set.
-    return "AZ_BATCHAI_CLUSTER_NAME" in os.environ
+    # Azure Batch (backend of AzureML) or from
+    # native Azure Batch have AZ_BATCH_TASK_ID is set
+    return "AZ_BATCHAI_CLUSTER_NAME" in os.environ or "AZ_BATCH_TASK_ID" in os.environ
