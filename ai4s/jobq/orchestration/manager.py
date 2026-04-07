@@ -325,14 +325,13 @@ async def launch_workers(
         # or the AML service announces that the current node will get preempted.
 
         # The PreemptionEventHandler takes care of the AML service
-        await stack.enter_async_context(
-            PreemptionEventHandler(
-                shutdown_event=shutdown_event,
-                queue=queue,
-                environment_name=environment_name,
-                poll_interval_seconds=1,
-            )
+        preemption_handler = PreemptionEventHandler(
+            shutdown_event=shutdown_event,
+            queue=queue,
+            environment_name=environment_name,
+            poll_interval_seconds=1,
         )
+        await stack.enter_async_context(preemption_handler)
 
         # those defaults are important, as they are the case of a preemption
         # the PreemptionEventHandler only sets the shutdown event but does not set the flags below

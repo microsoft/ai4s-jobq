@@ -335,26 +335,40 @@ class ServiceBusRestClient:
         from azure.servicebus._transport._pyamqp_transport import PyamqpTransport
         from azure.servicebus.aio import ServiceBusClient
 
-        async with ServiceBusClient(
-            fully_qualified_namespace=self.fqns,
-            credential=self._credential,
-        ) as sb_client:
-            receiver = sb_client.get_queue_receiver(
-                queue_name=self.queue_name,
-                receive_mode=ServiceBusReceiveMode.PEEK_LOCK,
-            )
-            async with receiver:
-                message = {
-                    MGMT_REQUEST_DISPOSITION_STATUS: "suspended",
-                    MGMT_REQUEST_LOCK_TOKENS: PyamqpTransport.AMQP_ARRAY_VALUE([UUID(lock_token)]),
-                    MGMT_REQUEST_DEAD_LETTER_REASON: reason,
-                    MGMT_REQUEST_DEAD_LETTER_ERROR_DESCRIPTION: "",
-                }
-                await receiver._mgmt_request_response_with_retry(
-                    REQUEST_RESPONSE_UPDATE_DISPOSTION_OPERATION,
-                    message,
-                    lambda *a, **kw: None,
+        async def _do_deadletter() -> None:
+            async with ServiceBusClient(
+                fully_qualified_namespace=self.fqns,
+                credential=self._credential,
+            ) as sb_client:
+                receiver = sb_client.get_queue_receiver(
+                    queue_name=self.queue_name,
+                    receive_mode=ServiceBusReceiveMode.PEEK_LOCK,
                 )
+                async with receiver:
+                    message = {
+                        MGMT_REQUEST_DISPOSITION_STATUS: "suspended",
+                        MGMT_REQUEST_LOCK_TOKENS: PyamqpTransport.AMQP_ARRAY_VALUE(
+                            [UUID(lock_token)]
+                        ),
+                        MGMT_REQUEST_DEAD_LETTER_REASON: reason,
+                        MGMT_REQUEST_DEAD_LETTER_ERROR_DESCRIPTION: "",
+                    }
+                    await receiver._mgmt_request_response_with_retry(
+                        REQUEST_RESPONSE_UPDATE_DISPOSTION_OPERATION,
+                        message,
+                        lambda *a, **kw: None,
+                    )
+
+        try:
+            await asyncio.wait_for(_do_deadletter(), timeout=30)
+        except (TimeoutError, Exception) as exc:
+            LOG.warning(
+                "AMQP dead-letter failed for message %s (lock_token=%s): %s. "
+                "Message will return to the queue when its lock expires.",
+                location_url,
+                lock_token,
+                exc,
+            )
 
     async def renew_lock(
         self, location_url: str, timeout: ty.Optional[aiohttp.ClientTimeout] = None

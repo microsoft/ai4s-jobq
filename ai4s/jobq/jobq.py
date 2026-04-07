@@ -371,7 +371,15 @@ class JobQ:
                 execution_was_succesful = True
             except WorkerCanceled:
                 await envelope.cancel_heartbeat()
-                await envelope.requeue()
+                try:
+                    await envelope.requeue()
+                except Exception:
+                    LOG.warning(
+                        "Failed to requeue task %s (message will be re-delivered "
+                        "after the lock expires).",
+                        task.id,
+                        exc_info=True,
+                    )
                 duration = time.time() - start_time
                 LOG.info(
                     f"Task {task.id} canceled.",
