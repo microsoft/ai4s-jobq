@@ -1,6 +1,32 @@
 CHANGELOG
 =========
 
+3.5.0 (2026-04-07)
+------------------
+
+Fixes:
+
+* **ServiceBus REST: non-blocking pool shutdown during preemption.**
+  ``ProcessPool._kill_subprocesses`` now runs ``pool.shutdown(wait=True)``
+  in a thread executor instead of blocking the asyncio event loop. This
+  keeps lock-renewal tasks and heartbeats alive while waiting for pool
+  processes to exit, preventing message-lock expiration on the ServiceBus
+  REST backend (5-minute lock duration).
+
+* **ServiceBus REST: ``deadletter_message()`` timeout and error handling.**
+  The one-off AMQP connection opened for dead-lettering now has a 30-second
+  timeout and catches all errors instead of letting a hung or failed AMQP
+  connection break the worker.
+
+* **Resilient ``requeue()`` on worker cancellation.**
+  A failed ``requeue()`` call (e.g. expired lock) inside the
+  ``WorkerCanceled`` handler no longer replaces the exception and kills
+  the worker — the error is logged and the cancellation flow continues.
+
+* **Non-blocking ``ProcessPool.__aexit__``.**
+  Final pool shutdown in ``__aexit__`` also runs via ``run_in_executor``
+  for consistency.
+
 3.4.0 (2026-03-30)
 ------------------
 

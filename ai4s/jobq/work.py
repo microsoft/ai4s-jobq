@@ -343,7 +343,12 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
                 LOG.exception("Error passing signal to pool processes")
 
         LOG.debug("Shutting down pool.")
-        self._pool.shutdown(wait=True)
+        # Run the synchronous shutdown in a thread so the asyncio event loop
+        # stays unblocked.  This lets lock-renewal tasks, heartbeats, and the
+        # PreemptionEventHandler continue to run while we wait for the pool
+        # processes to finish — preventing message-lock expiration that is
+        # especially critical for the ServiceBus REST backend (5-min lock).
+        await loop.run_in_executor(None, self._pool.shutdown, True)
         LOG.debug("Pool shutdown done.")
         self.__pool = await self._create_pool()
         await asyncio.sleep(1)
@@ -467,7 +472,8 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
 
     async def __aexit__(self, *args: ty.Any) -> None:
         LOG.debug("Started ProcessPool context manager exit.")
-        self._pool.shutdown(wait=True)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._pool.shutdown, True)
         LOG.debug("Signaling log msg queue to stop.")
         if self.log_msg_queue is not None:
             # put a sentinel value to stop the log_from_queue task
