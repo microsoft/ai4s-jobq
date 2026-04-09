@@ -4,6 +4,7 @@ import contextvars
 import logging
 import os
 import sys
+import traceback
 from collections import deque
 from typing import Any
 
@@ -87,10 +88,35 @@ _context_dimensions: contextvars.ContextVar[dict[str, str]] = contextvars.Contex
 
 
 class CustomDimensionsFilter(logging.Filter):
-    def __init__(self, custom_dimensions=None):
-        self.custom_dimensions = custom_dimensions or {}
+    """
+    Adds custom 'extra' dimensions to log records (only if attribute is absent).
+    Optionally drops records that carry exception context to prevent AppExceptions.
+    """
 
-    def filter(self, record):
+    def __init__(self, custom_dimensions=None, *, filter_exceptions: bool = True):
+        super().__init__()
+        self.custom_dimensions = custom_dimensions or {}
+        self.filter_exceptions = filter_exceptions
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if self.filter_exceptions:
+            exc_info = getattr(record, "exc_info", None)
+            if exc_info:
+                exc_type, exc_value, exc_tb = exc_info
+
+                # exceptions to traces to reduce AppExceptions table noise
+                if exc_type:
+                    tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+                    tb_string = "".join(tb_lines)
+
+                    record.exception_type = exc_type.__name__
+                    record.exception_message = str(exc_value)
+                    record.exception_traceback = tb_string
+
+                    # clear exc_info to prevent it from going to AppExceptions table
+                    record.exc_info = None
+                    record.exc_text = None
+
         # Start with static (process-wide) dimensions
         cdim = self.custom_dimensions.copy()
         # Layer on per-coroutine context dimensions (override static ones)
@@ -306,14 +332,43 @@ def setup_logging(
                 "Please install it to enable Azure Monitor integration."
             )
         else:
+            from opentelemetry.sdk._logs import LoggingHandler as _SdkLoggingHandler
+
+            try:
+                from opentelemetry.instrumentation.logging.handler import (
+                    LoggingHandler as _InstrLoggingHandler,
+                )
+
+                _logging_handler_types: tuple[type, ...] = (
+                    _SdkLoggingHandler,
+                    _InstrLoggingHandler,
+                )
+            except ImportError:
+                _logging_handler_types = (_SdkLoggingHandler,)
+
             configure_azure_monitor(
                 connection_string=connstr,
                 span_processors=[SkipHttpProcessor()],
                 credential=credential,
+                sampling_ratio=0.0,
+                enable_performance_counters=False,
+                enable_live_metrics=False,
             )
-            azure_handler = logging.getLogger().handlers[-1]
-            azure_handler.addFilter(SkipTaskLogsFilter())
-            azure_handler.addFilter(_custom_dimensions_filter)
+
+            # Find the Azure Monitor LoggingHandler by type instead of assuming position
+            azure_handler = None
+            for handler in logging.getLogger().handlers:
+                if isinstance(handler, _logging_handler_types):
+                    azure_handler = handler
+                    break
+
+            if azure_handler is not None:
+                azure_handler.addFilter(SkipTaskLogsFilter())
+                azure_handler.addFilter(_custom_dimensions_filter)
+            else:
+                LOG.warning(
+                    "Azure Monitor handler not found, custom filters not applied"
+                )
 
     LOG.setLevel(internal_log_level)
     TRACK_LOG.setLevel(internal_log_level)
