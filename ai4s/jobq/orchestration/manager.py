@@ -201,12 +201,17 @@ async def batch_enqueue(
 
         async for tpl in work_spec.task_seeds():
             await enum_jobs.put(tpl)
-
-        LOG.info("Waiting for queue to complete")
+        if show_progress:
+            LOG.info("Waiting for queue to complete")
+        else:
+            LOG.debug("Waiting for queue to complete")
         await enum_jobs.join()
         await enqueue_jobs.join()
 
-        LOG.info("Joining workers")
+        if show_progress:
+            LOG.info("Joining workers")
+        else:
+            LOG.debug("Joining workers")
         for worker in chain(enum_workers, enq_workers):
             worker.cancel()
 

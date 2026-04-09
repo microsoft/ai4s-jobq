@@ -1,6 +1,15 @@
 CHANGELOG
 =========
 
+3.6.0 (2026-04-09)
+------------------
+
+Feature:
+
+* **Reduce noise when scheduling.**
+  ``batch_enqueue()`` now logs queue-completion and worker-join messages at
+  ``DEBUG`` level instead of ``INFO`` when ``show_progress`` is disabled.
+
 3.5.0 (2026-04-07)
 ------------------
 
