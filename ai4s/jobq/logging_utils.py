@@ -366,9 +366,7 @@ def setup_logging(
                 azure_handler.addFilter(SkipTaskLogsFilter())
                 azure_handler.addFilter(_custom_dimensions_filter)
             else:
-                LOG.warning(
-                    "Azure Monitor handler not found, custom filters not applied"
-                )
+                LOG.warning("Azure Monitor handler not found, custom filters not applied")
 
     LOG.setLevel(internal_log_level)
     TRACK_LOG.setLevel(internal_log_level)
