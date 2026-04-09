@@ -1,6 +1,21 @@
 CHANGELOG
 =========
 
+3.6.0 (2026-04-09)
+------------------
+
+Feature:
+
+* **Reduce noise when scheduling.**
+  ``batch_enqueue()`` now logs queue-completion and worker-join messages at
+  ``DEBUG`` level instead of ``INFO`` when ``show_progress`` is disabled.
+
+* **Improve Azure Monitor configuration.**
+  Suppress ``AppDependencies`` table noise with ``sampling_ratio=0.0``,
+  disable performance counters and live metrics by default, find the Azure
+  Add exception filtering to ``CustomDimensionsFilter`` to redirect 
+  exceptions from ``AppExceptions`` to ``AppTraces``.
+
 3.5.0 (2026-04-07)
 ------------------
 
