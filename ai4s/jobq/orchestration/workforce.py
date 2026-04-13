@@ -47,7 +47,7 @@ from azure.ai.ml.entities import Command
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import HttpResponseError
 from dateutil.parser import parse as _parse_utc
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 
 LOG = logging.getLogger(__name__)
 
@@ -181,28 +181,26 @@ class Workforce:
         num_pending: int  # Queued + Preparing + Paused + Starting + Waiting
         num_running: int
 
-    class DetailedState(State):
-        """Extended workforce state with per-status breakdowns for monitoring.
-        num_pending is automatically computed from individual status counts."""
+    class DetailedState(BaseModel):
+        """Extended workforce state with per-status breakdowns for monitoring."""
 
+        num_running: int
         num_paused: int
         num_queued: int
         num_preparing: int
         num_starting: int
         num_waiting: int
 
-        @model_validator(mode="before")
-        @classmethod
-        def _compute_pending(cls, data):
-            if isinstance(data, dict) and "num_pending" not in data:
-                data["num_pending"] = (
-                    data.get("num_paused", 0)
-                    + data.get("num_queued", 0)
-                    + data.get("num_preparing", 0)
-                    + data.get("num_starting", 0)
-                    + data.get("num_waiting", 0)
-                )
-            return data
+        @property
+        def num_pending(self) -> int:
+            """Total non-running active jobs."""
+            return (
+                self.num_paused
+                + self.num_queued
+                + self.num_preparing
+                + self.num_starting
+                + self.num_waiting
+            )
 
     def __init__(
         self,
