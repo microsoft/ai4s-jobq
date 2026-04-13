@@ -157,7 +157,7 @@ class MultiRegionWorkforce:
         # scale down by removing queued workers
         layoff_distribution: list[int] = [0] * len(self.workforces)
         avg_num_to_layoff = total_to_layoff // len(self.workforces)
-        available_for_layoff_list = [s.num_queued for s in self.states]
+        available_for_layoff_list = [s.num_pending for s in self.states]
         carry = 0
 
         # Sort by available capacity to better distribute workers
@@ -209,12 +209,12 @@ class MultiRegionWorkforce:
             True if the scaling operation was successful, False otherwise.
         """
         currently_running = sum([s.num_running for s in self.states])
-        currently_queued = sum([s.num_queued for s in self.states])
+        currently_pending = sum([s.num_pending for s in self.states])
         LOG.info(
-            f"Running {currently_running} workers and queued {currently_queued} workers on all workforces for queue {self.queue_name}."
+            f"Running {currently_running} workers and {currently_pending} pending on all workforces for queue {self.queue_name}."
         )
         nb_scale_to = await asyncio.gather(self.determine_number_of_workers())
-        total_current = currently_running + currently_queued
+        total_current = currently_running + currently_pending
 
         # Handle scale to zero case - do this in parallel for efficiency
         if scale_to_zero:
@@ -254,7 +254,7 @@ class MultiRegionWorkforce:
         if total_to_hire == 0:
             return True
         if total_to_hire < 0:
-            if currently_queued > 0:
+            if currently_pending > 0:
                 layoff_distribution = self.layoff_queued_workers(total_to_layoff=-total_to_hire)
                 if sum(layoff_distribution) == -total_to_hire:
                     return True
