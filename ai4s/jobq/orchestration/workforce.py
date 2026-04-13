@@ -178,9 +178,8 @@ class Workforce:
     class State(BaseModel):
         """Lightweight workforce state for scaling decisions."""
 
-        num_pending: (
-            int  # All non-running active jobs (Queued + Preparing + Paused + Starting + Waiting)
-        )
+        num_pending: int
+        """All non-running active jobs (Queued + Preparing + Paused + Starting + Waiting)."""
         num_running: int
 
     class DetailedState(State):
