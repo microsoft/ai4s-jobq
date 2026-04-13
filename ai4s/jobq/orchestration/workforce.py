@@ -47,7 +47,7 @@ from azure.ai.ml.entities import Command
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import HttpResponseError
 from dateutil.parser import parse as _parse_utc
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 LOG = logging.getLogger(__name__)
 
@@ -177,16 +177,34 @@ class Workforce:
 
     class State(BaseModel):
         """Lightweight workforce state for scaling decisions."""
-        num_pending: int  # All non-running active jobs (Queued + Preparing + Paused + Starting + Waiting)
+
+        num_pending: (
+            int  # All non-running active jobs (Queued + Preparing + Paused + Starting + Waiting)
+        )
         num_running: int
 
     class DetailedState(State):
-        """Extended workforce state with per-status breakdowns for monitoring."""
+        """Extended workforce state with per-status breakdowns for monitoring.
+        num_pending is automatically computed from individual status counts."""
+
         num_paused: int
         num_queued: int
         num_preparing: int
         num_starting: int
         num_waiting: int
+
+        @model_validator(mode="before")
+        @classmethod
+        def _compute_pending(cls, data):
+            if isinstance(data, dict) and "num_pending" not in data:
+                data["num_pending"] = (
+                    data.get("num_paused", 0)
+                    + data.get("num_queued", 0)
+                    + data.get("num_preparing", 0)
+                    + data.get("num_starting", 0)
+                    + data.get("num_waiting", 0)
+                )
+            return data
 
     def __init__(
         self,
@@ -317,10 +335,7 @@ class Workforce:
             else:
                 raise RuntimeError(f"Unknown job status: {job.status}")
 
-        num_pending = num_paused + num_queued + num_preparing + num_starting + num_waiting
-
         return self.DetailedState(
-            num_pending=num_pending,
             num_running=num_running,
             num_paused=num_paused,
             num_queued=num_queued,
