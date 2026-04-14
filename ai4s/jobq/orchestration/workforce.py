@@ -176,8 +176,31 @@ class Workforce:
     """
 
     class State(BaseModel):
-        num_queued: int
+        """Lightweight workforce state for scaling decisions."""
+
+        num_pending: int  # Queued + Preparing + Paused + Starting + Waiting
         num_running: int
+
+    class DetailedState(BaseModel):
+        """Extended workforce state with per-status breakdowns for monitoring."""
+
+        num_running: int
+        num_paused: int
+        num_queued: int
+        num_preparing: int
+        num_starting: int
+        num_waiting: int
+
+        @property
+        def num_pending(self) -> int:
+            """Total non-running active jobs."""
+            return (
+                self.num_paused
+                + self.num_queued
+                + self.num_preparing
+                + self.num_starting
+                + self.num_waiting
+            )
 
     def __init__(
         self,
@@ -252,9 +275,35 @@ class Workforce:
             azcli(create_subscription)
 
     def get_current_state(self, extra_filters: list[dict] | None = None) -> State:
-        """List jobs in the experiment, the extras field can be used to filter the jobs, the syntax is documented here: https://learn.microsoft.com/en-us/graph/filter-query-parameter?tabs=http"""
-        num_queued = 0
+        """Get a lightweight state of the workforce (num_pending + num_running).
+
+        For per-status breakdowns, use get_detailed_state() instead.
+
+        The extra_filters field can be used to filter the jobs, the syntax is documented here:
+        https://learn.microsoft.com/en-us/graph/filter-query-parameter?tabs=http
+        """
+        detailed = self.get_detailed_state(extra_filters=extra_filters)
+        return self.State(
+            num_pending=detailed.num_pending,
+            num_running=detailed.num_running,
+        )
+
+    def get_detailed_state(self, extra_filters: list[dict] | None = None) -> DetailedState:
+        """Get a detailed state of the workforce with per-status breakdowns.
+
+        Returns a DetailedState with counts for each active job status
+        (running, paused, queued, preparing, starting, waiting).
+        No extra API cost over get_current_state() — uses the same list_jobs() call.
+
+        The extra_filters field can be used to filter the jobs, the syntax is documented here:
+        https://learn.microsoft.com/en-us/graph/filter-query-parameter?tabs=http
+        """
         num_running = 0
+        num_paused = 0
+        num_queued = 0
+        num_preparing = 0
+        num_starting = 0
+        num_waiting = 0
 
         for job in self.list_jobs(
             with_status=[
@@ -269,23 +318,35 @@ class Workforce:
         ):
             if job.status == "Running":
                 num_running += 1
-            elif job.status in ("Queued", "Preparing", "Paused", "Starting", "Waiting"):
+            elif job.status == "Paused":
+                num_paused += 1
+            elif job.status == "Queued":
                 num_queued += 1
+            elif job.status == "Preparing":
+                num_preparing += 1
+            elif job.status == "Starting":
+                num_starting += 1
+            elif job.status == "Waiting":
+                num_waiting += 1
             else:
                 raise RuntimeError(f"Unknown job status: {job.status}")
 
-        return self.State(
-            num_queued=num_queued,
+        return self.DetailedState(
             num_running=num_running,
+            num_paused=num_paused,
+            num_queued=num_queued,
+            num_preparing=num_preparing,
+            num_starting=num_starting,
+            num_waiting=num_waiting,
         )
 
     def scale_to(self, num_workers: int, with_layoffs: bool = True) -> None:
         current_state = self.get_current_state()
 
-        num_to_start = num_workers - current_state.num_running - current_state.num_queued
+        num_to_start = num_workers - current_state.num_running - current_state.num_pending
 
         ineq = "" if with_layoffs else "≥ "
-        msg = f"Scaling to {ineq}{num_workers} workers. Currently have {current_state.num_running} running and {current_state.num_queued} queued."
+        msg = f"Scaling to {ineq}{num_workers} workers. Currently have {current_state.num_running} running and {current_state.num_pending} pending."
 
         if num_to_start > 0:
             LOG.info(f"{msg} Requesting {num_to_start} new workers.")
@@ -412,11 +473,11 @@ class Workforce:
         current_state = current_state or self.get_current_state()
 
         # for azureml, we check the cluster size, subtract the currently running (targetNodeCount)
-        # then we subtract the already queued jobs
+        # then we subtract the already pending jobs
         cluster_info = self.get_compute_infos().properties.properties
         max_node_count = cluster_info.scaleSettings["maxNodeCount"]
         nb_available = max_node_count - cluster_info.targetNodeCount  # type: ignore[operator]
-        max_to_hire = nb_available - current_state.num_queued  # type: ignore[operator]
+        max_to_hire = nb_available - current_state.num_pending  # type: ignore[operator]
         return max_to_hire
 
     def hire(self, n: int, batch_size=200) -> None:
