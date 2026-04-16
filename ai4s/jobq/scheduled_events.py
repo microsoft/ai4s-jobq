@@ -19,6 +19,7 @@ async with PreemptionEventHandler(event):
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 from dataclasses import dataclass
@@ -45,7 +46,7 @@ class ScheduledEvent:
 
 class ScheduledEventHandler:
     def __init__(self, callback, poll_interval_seconds: int = 1):
-        self._polling_task = None
+        self._polling_task: asyncio.Task | None = None
         self._poll_interval_seconds = poll_interval_seconds
         self.__callback = callback
 
@@ -64,10 +65,8 @@ class ScheduledEventHandler:
         if self._polling_task:
             await self._session.__aexit__(exc_type, exc_value, traceback)
             self._polling_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._polling_task
-            except asyncio.CancelledError:
-                pass
             LOG.info("Stopped polling for scheduled events.")
 
     async def _poll_scheduled_events(self):
@@ -117,7 +116,7 @@ class PreemptionEventHandler(ScheduledEventHandler):
 
         self._scheduled_event_initiated_by_us = False
 
-        truish = "1 true yes t y".split()
+        truish = ["1", "true", "yes", "t", "y"]
         self.disabled = os.environ.get("JOBQ_DISABLE_SCHEDULED_EVENTS", "0").lower() in truish
 
     async def __callback(self, events: list[ScheduledEvent]):

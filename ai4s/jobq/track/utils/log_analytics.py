@@ -24,9 +24,8 @@ def get_distinct_values(query):
     if response.status == LogsQueryStatus.SUCCESS:
         LOG.debug(f"Query successful, found {len(response.tables[0].rows)} distinct values.")
         return [row[0] for row in response.tables[0].rows]
-    else:
-        LOG.debug(f"Query failed with status: {response.status}")
-        raise Exception(f"Query failed: {response.status}")
+    LOG.debug(f"Query failed with status: {response.status}")
+    raise Exception(f"Query failed: {response.status}")
 
 
 def run_query(query):
@@ -38,5 +37,4 @@ def run_query(query):
     )
     if response.status == LogsQueryStatus.SUCCESS:
         return response.tables[0].rows
-    else:
-        raise Exception(f"Query failed: {response.status}")
+    raise Exception(f"Query failed: {response.status}")

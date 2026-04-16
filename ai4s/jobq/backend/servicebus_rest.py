@@ -13,7 +13,6 @@ from datetime import timedelta
 from types import TracebackType
 
 import aiohttp
-from azure.core.credentials import AccessToken
 from azure.core.credentials_async import AsyncTokenCredential
 from azure.core.exceptions import ResourceExistsError
 from azure.servicebus.aio.management import ServiceBusAdministrationClient
@@ -29,6 +28,9 @@ from ai4s.jobq.entities import EmptyQueue, Response, Task
 
 from .common import Envelope, JobQBackend
 
+if ty.TYPE_CHECKING:
+    from azure.core.credentials import AccessToken
+
 LOG = logging.getLogger(__name__)
 
 SERVICE_BUS_SCOPE = "https://servicebus.azure.net/.default"
@@ -41,7 +43,7 @@ class _CachedTokenCredential:
 
     def __init__(self, credential: AsyncTokenCredential):
         self.credential = credential
-        self.token: ty.Optional[AccessToken] = None
+        self.token: AccessToken | None = None
 
     async def __aenter__(self) -> "_CachedTokenCredential":
         return self
@@ -78,9 +80,9 @@ def _is_retryable(exc: BaseException) -> bool:
     """Return True for transient errors that should be retried."""
     if isinstance(exc, (aiohttp.ClientConnectionError, asyncio.TimeoutError, TimeoutError)):
         return True
-    if isinstance(exc, aiohttp.ClientResponseError) and exc.status in _RETRYABLE_STATUS_CODES:
-        return True
-    return False
+    return bool(
+        isinstance(exc, aiohttp.ClientResponseError) and exc.status in _RETRYABLE_STATUS_CODES
+    )
 
 
 @dataclass
@@ -142,9 +144,9 @@ class ServiceBusRestClient:
         self.fqns = fqns
         self.queue_name = queue_name
         self._credential = credential
-        self._session: ty.Optional[aiohttp.ClientSession] = None
-        self._cached_credential: ty.Optional[_CachedTokenCredential] = None
-        self._max_retries = int(os.environ.get("JOBQ_SERVICEBUS_MAX_RETRIES", 4))
+        self._session: aiohttp.ClientSession | None = None
+        self._cached_credential: _CachedTokenCredential | None = None
+        self._max_retries = int(os.environ.get("JOBQ_SERVICEBUS_MAX_RETRIES", "4"))
 
     @property
     def _base_url(self) -> str:
@@ -163,9 +165,9 @@ class ServiceBusRestClient:
 
     async def __aexit__(
         self,
-        exc_type: ty.Optional[ty.Type[BaseException]],
-        exc: ty.Optional[BaseException],
-        tb: ty.Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
     ) -> None:
         if self._session is not None:
             await self._session.close()
@@ -189,11 +191,11 @@ class ServiceBusRestClient:
         method: str,
         url: str,
         *,
-        headers: ty.Optional[dict[str, str]] = None,
-        data: ty.Optional[str] = None,
-        params: ty.Optional[dict[str, str]] = None,
-        timeout: ty.Optional[aiohttp.ClientTimeout] = None,
-        max_retries: ty.Optional[int] = None,
+        headers: dict[str, str] | None = None,
+        data: str | None = None,
+        params: dict[str, str] | None = None,
+        timeout: aiohttp.ClientTimeout | None = None,
+        max_retries: int | None = None,
     ) -> aiohttp.ClientResponse:
         """Execute an HTTP request with retry and 401 token-refresh logic.
 
@@ -214,7 +216,7 @@ class ServiceBusRestClient:
                 url,
                 rs.attempt_number,
                 effective_retries,
-                rs.outcome.exception(),
+                rs.outcome.exception() if rs.outcome else "unknown",
             ),
             reraise=True,
         )
@@ -249,8 +251,8 @@ class ServiceBusRestClient:
     async def send_message(
         self,
         body: str,
-        broker_properties: ty.Optional[dict] = None,
-        message_id: ty.Optional[str] = None,
+        broker_properties: dict | None = None,
+        message_id: str | None = None,
     ) -> str:
         """Send a message to the queue. Returns the message ID."""
         url = f"{self._base_url}/{self.queue_name}/messages"
@@ -283,7 +285,7 @@ class ServiceBusRestClient:
         finally:
             resp.close()
 
-    async def receive_and_delete_message(self, timeout: int = 2) -> ty.Optional[str]:
+    async def receive_and_delete_message(self, timeout: int = 2) -> str | None:
         """Receive and immediately delete one message (destructive read)."""
         url = f"{self._base_url}/{self.queue_name}/messages/head"
         params = {"timeout": str(timeout)}
@@ -371,7 +373,7 @@ class ServiceBusRestClient:
             )
 
     async def renew_lock(
-        self, location_url: str, timeout: ty.Optional[aiohttp.ClientTimeout] = None
+        self, location_url: str, timeout: aiohttp.ClientTimeout | None = None
     ) -> float:
         """Renew the lock on a peek-locked message using the Location URL.
 
@@ -387,9 +389,9 @@ class ServiceBusRestClient:
         finally:
             resp.close()
 
-    async def peek_messages(self, n: int = 1) -> ty.List[dict]:
+    async def peek_messages(self, n: int = 1) -> list[dict]:
         """Non-destructive peek at messages (no lock acquired)."""
-        messages: ty.List[dict] = []
+        messages: list[dict] = []
 
         for _ in range(n):
             url = f"{self._base_url}/{self.queue_name}/messages/head"
@@ -417,9 +419,9 @@ class RESTServiceBusEnvelope(Envelope):
         message: _ReceivedMessage,
         task: Task,
         client: ServiceBusRestClient,
-        lock_renewal_task: ty.Optional[asyncio.Task[None]] = None,
-        lock_stop_event: ty.Optional[asyncio.Event] = None,
-        lock_lost_event: ty.Optional[asyncio.Event] = None,
+        lock_renewal_task: asyncio.Task[None] | None = None,
+        lock_stop_event: asyncio.Event | None = None,
+        lock_lost_event: asyncio.Event | None = None,
     ):
         self.message = message
         self._task = task
@@ -490,10 +492,10 @@ class ServiceBusRestBackend(JobQBackend):
         self,
         queue_name: str,
         *,
-        fqns: ty.Optional[str] = None,
-        credential: ty.Optional[ty.Any] = None,
+        fqns: str | None = None,
+        credential: ty.Any | None = None,
         exist_ok: bool = True,
-        duplicate_detection_window: ty.Optional[timedelta] = None,
+        duplicate_detection_window: timedelta | None = None,
     ):
         self.fqns = fqns
         self.queue_name = queue_name
@@ -501,8 +503,8 @@ class ServiceBusRestBackend(JobQBackend):
         self.credential = credential
         self._exist_ok = exist_ok
         self._duplicate_detection_window = duplicate_detection_window or timedelta(days=7)
-        self._rest_client: ty.Optional[ServiceBusRestClient] = None
-        self._max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 5))
+        self._rest_client: ServiceBusRestClient | None = None
+        self._max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", "5"))
         # max lock renewal lifetime: 3 weeks
         self._max_lock_renewal_seconds = 60 * 60 * 24 * 21
 
@@ -523,9 +525,9 @@ class ServiceBusRestBackend(JobQBackend):
 
     async def __aexit__(
         self,
-        exc_type: ty.Optional[ty.Type[BaseException]],
-        exc: ty.Optional[BaseException],
-        tb: ty.Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
     ) -> None:
         if self._rest_client is not None:
             await self._rest_client.__aexit__(exc_type, exc, tb)
@@ -564,7 +566,7 @@ class ServiceBusRestBackend(JobQBackend):
                     "window is %s. Delete and recreate the queue to apply the "
                     "new window.",
                     self.queue_name,
-                    humanize.naturaldelta(queue_window),
+                    humanize.naturaldelta(queue_window),  # type: ignore[arg-type]
                     humanize.naturaldelta(self._duplicate_detection_window),
                 )
 
@@ -574,7 +576,7 @@ class ServiceBusRestBackend(JobQBackend):
         assert self._rest_client is not None
         return await self._rest_client.send_message(task.serialize(), message_id=task._id)
 
-    async def get_result(self, session_id: str, timeout: ty.Optional[timedelta] = None) -> Response:
+    async def get_result(self, session_id: str, timeout: timedelta | None = None) -> Response:
         raise NotImplementedError("REST ServiceBus backend does not support get_result yet.")
 
     def _start_lock_renewal(
@@ -718,7 +720,7 @@ class ServiceBusRestBackend(JobQBackend):
         # Retry several times before declaring the queue empty.
         # Each REST call is independent and may miss messages that are
         # temporarily locked by other receivers.
-        max_empty_polls = int(os.environ.get("JOBQ_SERVICEBUS_EMPTY_POLLS", 4))
+        max_empty_polls = int(os.environ.get("JOBQ_SERVICEBUS_EMPTY_POLLS", "4"))
         for attempt in range(max_empty_polls):
             try:
                 message = await self._rest_client.peek_lock_message(timeout=self._max_wait_time)
@@ -730,7 +732,7 @@ class ServiceBusRestBackend(JobQBackend):
                 await asyncio.sleep(attempt)
             except (TimeoutError, aiohttp.ClientError) as exc:
                 if attempt == max_empty_polls - 1:
-                    raise EmptyQueue(f"The queue {self.name} is unreachable: {exc}")
+                    raise EmptyQueue(f"The queue {self.name} is unreachable: {exc}") from exc
                 LOG.debug("Transient error on attempt %d/%d: %s", attempt + 1, max_empty_polls, exc)
                 await asyncio.sleep(1)
 
@@ -742,8 +744,8 @@ class ServiceBusRestBackend(JobQBackend):
                 message.delivery_count,
             )
 
-        lock_task: ty.Optional[asyncio.Task[None]] = None
-        lock_stop_event: ty.Optional[asyncio.Event] = None
+        lock_task: asyncio.Task[None] | None = None
+        lock_stop_event: asyncio.Event | None = None
         lock_lost_event = asyncio.Event()
         if with_heartbeat:
             # Renew at half the actual lock duration reported by Service Bus,
@@ -756,9 +758,8 @@ class ServiceBusRestBackend(JobQBackend):
         try:
             task = Task.deserialize(message.body)
         except Exception:
-            LOG.error(
+            LOG.exception(
                 "Stopping processing due to deserialization error to prevent potential data loss.",
-                exc_info=True,
             )
             if lock_stop_event is not None:
                 lock_stop_event.set()
@@ -809,7 +810,7 @@ class ServiceBusRestBackend(JobQBackend):
         """Drain the queue via destructive REST reads."""
         assert self._rest_client is not None
         n = 0
-        max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", 2))
+        max_wait_time = int(os.environ.get("JOBQ_SERVICEBUS_MAX_WAIT_TIME", "2"))
         while True:
             body = await self._rest_client.receive_and_delete_message(timeout=max_wait_time)
             if body is None:
@@ -823,7 +824,7 @@ class ServiceBusRestBackend(JobQBackend):
             assert self.fqns is not None, "Fully qualified namespace for service bus is required."
             async with ServiceBusAdministrationClient(
                 fully_qualified_namespace=self.fqns,
-                credential=self.credential,  # type: ignore
+                credential=self.credential,
             ) as aclt:
                 yield aclt
         else:
@@ -836,7 +837,7 @@ class ServiceBusRestBackend(JobQBackend):
             wait=wait_exponential_jitter(initial=0.5, max=5, jitter=1),
             reraise=True,
         )
-        async def _get_message_count() -> ty.Optional[int]:
+        async def _get_message_count() -> int | None:
             async with self._get_admin_client() as aclt:
                 queue_runtime_info = await aclt.get_queue_runtime_properties(
                     queue_name=self.queue_name
@@ -851,7 +852,7 @@ class ServiceBusRestBackend(JobQBackend):
                     return None
                 return ret
 
-        return await _get_message_count()
+        return await _get_message_count()  # type: ignore[return-value]  # tenacity retries until non-None
 
     @property
     def name(self) -> str:
@@ -860,7 +861,7 @@ class ServiceBusRestBackend(JobQBackend):
     def generate_sas(self, ttl: timedelta) -> str:
         raise NotImplementedError("REST ServiceBus does not yet support SAS tokens.")
 
-    async def peek(self, n: int = 1, as_json: bool = False) -> ty.List[ty.Any]:
+    async def peek(self, n: int = 1, as_json: bool = False) -> list[ty.Any]:
         assert self._rest_client is not None
         messages = await self._rest_client.peek_messages(n)
         if not messages:

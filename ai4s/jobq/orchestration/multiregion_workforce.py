@@ -113,38 +113,37 @@ class MultiRegionWorkforce:
 
         if queue_size == 0:
             return 0
+        # Get current running workers
+        num_running_workers = sum([s.num_running for s in self.states])
+
+        # Log a warning if we detect duplicate experiment names
+        experiment_names = [wf._experiment_name for wf in self.workforces]
+        if len(experiment_names) != len(set(experiment_names)):
+            LOG.warning(
+                "Duplicate experiment names detected in workforces. This will cause incorrect "
+                "worker counting since Workforce.get_current_state() counts all jobs within an experiment."
+            )
+
+        # We don't want to scale too fast
+        max_number_after_scaling = (1 + num_running_workers) * 10
+
+        # Now we choose a minimum workforce size based on the queue size.
+        if queue_size // self.num_workers > 10000:
+            scale_to = min(max_number_after_scaling, 1000)
+        elif queue_size // self.num_workers > 1000:
+            scale_to = min(max_number_after_scaling, 400)
+        elif queue_size // self.num_workers > 100:
+            scale_to = min(max_number_after_scaling, 50)
+        elif queue_size // self.num_workers > 20:
+            scale_to = min(max_number_after_scaling, 15)
+        elif queue_size // self.num_workers > 10:
+            scale_to = min(max_number_after_scaling, 5)
         else:
-            # Get current running workers
-            num_running_workers = sum([s.num_running for s in self.states])
+            scale_to = min(max_number_after_scaling, 1)
 
-            # Log a warning if we detect duplicate experiment names
-            experiment_names = [wf._experiment_name for wf in self.workforces]
-            if len(experiment_names) != len(set(experiment_names)):
-                LOG.warning(
-                    "Duplicate experiment names detected in workforces. This will cause incorrect "
-                    "worker counting since Workforce.get_current_state() counts all jobs within an experiment."
-                )
-
-            # We don't want to scale too fast
-            max_number_after_scaling = (1 + num_running_workers) * 10
-
-            # Now we choose a minimum workforce size based on the queue size.
-            if queue_size // self.num_workers > 10000:
-                scale_to = min(max_number_after_scaling, 1000)
-            elif queue_size // self.num_workers > 1000:
-                scale_to = min(max_number_after_scaling, 400)
-            elif queue_size // self.num_workers > 100:
-                scale_to = min(max_number_after_scaling, 50)
-            elif queue_size // self.num_workers > 20:
-                scale_to = min(max_number_after_scaling, 15)
-            elif queue_size // self.num_workers > 10:
-                scale_to = min(max_number_after_scaling, 5)
-            else:
-                scale_to = min(max_number_after_scaling, 1)
-
-            # We should not have more runners than the length of the queue or exceed the max limit
-            scale_to = min(scale_to, queue_size, self.max_num_workers)
-            return scale_to
+        # We should not have more runners than the length of the queue or exceed the max limit
+        scale_to = min(scale_to, queue_size, self.max_num_workers)
+        return scale_to
 
     def layoff_queued_workers(self, total_to_layoff: int) -> list[int]:
         """Lays off queued workers up to total_to_layoff and returns the distribution of layoffs over the workforces.

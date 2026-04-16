@@ -6,9 +6,8 @@ import os
 import sys
 import traceback
 from collections import deque
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from azure.core.credentials import TokenCredential
 from cachetools import TTLCache
 from opentelemetry._logs import get_logger_provider
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
@@ -17,6 +16,9 @@ from rich.logging import RichHandler
 from rich.text import Text
 
 from .auth import get_sync_token_credential
+
+if TYPE_CHECKING:
+    from azure.core.credentials import TokenCredential
 
 TASK_LOG = logging.getLogger("task")
 LOG = logging.getLogger("ai4s.jobq")
@@ -39,13 +41,12 @@ def _azureml_run_description() -> dict[str, str]:
             "azureml_url": f"https://ml.azure.com/runs/{run_id}?wsid={workspace_scope}",
             "job_url": f"https://ml.azure.com/runs/{run_id}?wsid=/subscriptions/{sub_id}/resourcegroups/{resource_group}/workspaces/{workspace_name}",
         }
-    else:
-        # we are using the azureml_workspace_name in grafana dashboards to visualize queue status
-        # which is why we set AZUREML_ARM_WORKSPACE_NAME also for e.g. azureml batch jobs
-        return {
-            "azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", ""),
-            "job_url": os.environ.get("AZUREML_JOB_URL", ""),
-        }
+    # we are using the azureml_workspace_name in grafana dashboards to visualize queue status
+    # which is why we set AZUREML_ARM_WORKSPACE_NAME also for e.g. azureml batch jobs
+    return {
+        "azureml_workspace_name": os.environ.get("AZUREML_ARM_WORKSPACE_NAME", ""),
+        "job_url": os.environ.get("AZUREML_JOB_URL", ""),
+    }
 
 
 async def flush_app_insights():
@@ -83,7 +84,8 @@ class SkipTaskLogsFilter(logging.Filter):
 
 
 _context_dimensions: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
-    "_context_dimensions", default={}
+    "_context_dimensions",
+    default={},  # noqa: B039
 )
 
 
@@ -332,7 +334,9 @@ def setup_logging(
                 "Please install it to enable Azure Monitor integration."
             )
         else:
-            from opentelemetry.sdk._logs import LoggingHandler as _SdkLoggingHandler
+            from opentelemetry.sdk._logs import (
+                LoggingHandler as _SdkLoggingHandler,
+            )
 
             try:
                 from opentelemetry.instrumentation.logging.handler import (

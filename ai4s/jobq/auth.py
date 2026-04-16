@@ -28,10 +28,9 @@ def get_token_credential() -> AsyncTokenCredential:
 
     if "DEFAULT_IDENTITY_CLIENT_ID" in os.environ:
         LOG.info("Authenticating with ManagedIdentityCredential()")
-        return ManagedIdentityCredential(client_id=os.environ["DEFAULT_IDENTITY_CLIENT_ID"])  # type: ignore
-    else:
-        LOG.info("Authenticating with AzureCliCredential()")
-        return AzureCliCredential()  # type: ignore
+        return ManagedIdentityCredential(client_id=os.environ["DEFAULT_IDENTITY_CLIENT_ID"])
+    LOG.info("Authenticating with AzureCliCredential()")
+    return AzureCliCredential()
 
 
 @lru_cache(2)
@@ -52,7 +51,6 @@ def get_sync_token_credential() -> TokenCredential:
 
     if "DEFAULT_IDENTITY_CLIENT_ID" in os.environ:
         LOG.info("Authenticating with ManagedIdentityCredential()")
-        return ManagedIdentityCredential(client_id=os.environ["DEFAULT_IDENTITY_CLIENT_ID"])  # type: ignore
-    else:
-        LOG.info("Authenticating with AzureCliCredential()")
-        return AzureCliCredential()  # type: ignore
+        return ManagedIdentityCredential(client_id=os.environ["DEFAULT_IDENTITY_CLIENT_ID"])
+    LOG.info("Authenticating with AzureCliCredential()")
+    return AzureCliCredential()

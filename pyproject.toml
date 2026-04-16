@@ -41,7 +41,7 @@ local_scheme = "no-local-version"
 
 [project.optional-dependencies]
 dev = [
-    "tox", "tox-conda", "pytest", "pytest-asyncio", "pytest-mock", "wait-for-it", "types-psutil", "types-cachetools", "pandas-stubs", "plotly-stubs", 
+    "tox", "tox-conda", "pytest", "pytest-asyncio", "pytest-mock", "wait-for-it", "types-psutil", "types-cachetools", "pandas-stubs", "plotly-stubs", "mypy",
     "sphinx",
     "sphinx-autodoc-typehints",
     "sphinx-rtd-theme",
@@ -77,6 +77,11 @@ namespaces = true
 
 [tool.mypy]
 strict_optional = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_reexport = true
 
 [[tool.mypy.overrides]]
 module = [
@@ -93,10 +98,31 @@ module = [
   "opencensus.ext.azure.*",
   "appdirs",
   "dash_bootstrap_components.*",
+  "yaml",
+  "opentelemetry.*",
+  "humanize",
+  "requests",
+  "monty.*",
+  "pydantic",
+  "azure.ai.ml",
+  "azure.ai.ml.*",
+  "plotly.*",
 ]
 disallow_untyped_calls = false
 warn_unused_ignores = false
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "opentelemetry.*",
+]
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = [
+  "ai4s.jobq.track.*",
+]
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 addopts = "--asyncio-mode=auto"
@@ -109,18 +135,95 @@ line-length = 100
 
 [tool.ruff]
 line-length = 100
-target-version = "py38"
-# E: pycodestyle, F: pyflakes, I: isort
-lint.extend-select = ["I"]
+target-version = "py310"
 
+[tool.ruff.lint]
+select = [
+  "E",      # pycodestyle errors
+  "F",      # pyflakes
+  "W",      # pycodestyle warnings
+  "I",      # isort
+  "UP",     # pyupgrade (modernize to 3.10+)
+  "B",      # flake8-bugbear (common bugs)
+  "S",      # flake8-bandit (security)
+  "SIM",    # flake8-simplify
+  "RUF",    # Ruff-specific rules
+  "C4",     # flake8-comprehensions
+  "T20",    # flake8-print (no stray prints)
+  "PT",     # flake8-pytest-style
+  "PLC",    # Pylint convention
+  "PLE",    # Pylint errors
+  "PLW",    # Pylint warnings
+  "N",      # pep8-naming
+  "ASYNC",  # async-specific lints
+  "TCH",    # type-checking imports
+  "PIE",    # flake8-pie (misc. lints)
+  "RSE",    # flake8-raise
+  "RET",    # flake8-return
+  "FLY",    # flynt (f-string conversion)
+  "PERF",   # perflint (performance)
+  "LOG",    # flake8-logging
+  "G",      # flake8-logging-format
+]
+ignore = [
+  "S101",    # assert — allowed in tests
+  "G004",    # logging-f-string — common pattern in this codebase
+  "RET504",  # unnecessary-assign — sometimes aids readability
+  "UP035",   # deprecated-import — some still needed for 3.10 compat
+  "PLC0415", # import-outside-top-level — lazy imports are intentional (heavy Azure SDKs)
+  "N815",    # mixed-case-variable-in-class-scope — Azure SDK uses camelCase fields
+  "PERF203", # try-except-in-loop — sometimes unavoidable in retry/polling patterns
+  "E501",    # line-too-long — handled by ruff format; remaining are URLs/strings
+]
 
-[tool.isort]
-profile = "black"
-line_length = 100
-known_third_party = [
-    "amlt",
-    "wandb",
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+  "S101",    # assert is the point of tests
+  "S105",    # hardcoded passwords — test connection strings
+  "S106",    # hardcoded passwords — test connection strings
+  "S107",    # hardcoded passwords — test connection strings
+  "S110",    # try-except-pass OK in test cleanup
+  "S311",    # pseudo-random OK in tests
+  "S603",    # subprocess OK in tests
+  "T201",    # print OK in tests
+  "PLW0603", # global statement OK in test fixtures
+  "ASYNC220",# subprocess in async OK in tests
 ]
-skip = [
-  "ai4s/jobq/__init__.py"
+"ai4s/jobq/cli.py" = ["T201", "S603", "S607", "ASYNC220"]  # CLI runs subprocesses
+"ai4s/jobq/track/**/*.py" = ["T201"]  # print OK in dashboard
+"ai4s/jobq/work.py" = [
+  "S603",    # subprocess — job queue intentionally runs subprocesses
+  "S602",    # subprocess shell — needed for shell commands
+  "S607",    # partial path — intentional for user commands
+  "ASYNC220",# subprocess in async — by design
 ]
+"ai4s/jobq/orchestration/**/*.py" = [
+  "S603", "S602", "S607",  # subprocess — orchestration runs commands
+  "S311",                  # pseudo-random for jitter — not cryptographic
+  "ASYNC220",              # subprocess in async — by design
+]
+"ai4s/jobq/blob.py" = [
+  "S324",    # md5 for content hashing, not security
+  "S301",    # pickle — intentional for serialization
+  "ASYNC230",# blocking open in async — existing pattern
+  "SIM115",  # context manager for open — async compat
+]
+"ai4s/jobq/blob_stash.py" = [
+  "S324",    # md5 for content hashing, not security
+  "S301",    # pickle — intentional for serialization
+]
+"ai4s/jobq/entities.py" = ["S324"]  # md5 for deterministic IDs, not security
+"ai4s/jobq/ext/**/*.py" = ["S602", "S603", "S607", "ASYNC230"]  # extensions run subprocesses
+"ai4s/jobq/la_workspace.py" = ["S603", "S607"]  # subprocess calls for CLI tools
+"ai4s/jobq/logging_utils.py" = ["PLW0603", "T201"]  # global for filter management; print for raw task output
+"ai4s/jobq/skill_file.py" = ["N806"]  # LOG variable name is conventional
+"ai4s/jobq/orchestration/workforce_monitor.py" = ["N806"]  # env var names as constants
+"scripts/**/*.py" = ["T201", "S603", "S602", "S607"]  # scripts use print and subprocess
+"bench.py" = ["T201", "S603"]  # benchmark script
+"diamond_*.py" = ["T201", "S110", "S603"]  # example scripts
+
+[tool.ruff.lint.isort]
+known-third-party = ["amlt", "wandb"]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false

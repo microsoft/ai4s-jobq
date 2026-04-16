@@ -1,3 +1,4 @@
+import contextlib
 import os
 from pathlib import Path
 
@@ -11,14 +12,12 @@ from ai4s.jobq.blob import BlobContainer
 @pytest.mark.asyncio
 async def test_blob_processor(mocker, tmp_path) -> None:
     container = "mock0container"
-    blob_port = os.environ.get("BLOB_PORT", 10000)
+    blob_port = os.environ.get("BLOB_PORT", "10000")
     bsc = BlobServiceClient.from_connection_string(
         f"DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:{blob_port}/devstoreaccount1;"
     )
-    try:
+    with contextlib.suppress(Exception):
         await bsc.create_container(container)
-    except Exception:
-        pass
     mocker.patch("ai4s.jobq.blob.BlobServiceClient", return_value=bsc)
     async with BlobContainer(
         storage_account="mock0storage0account",
@@ -56,14 +55,12 @@ async def test_blob_processor(mocker, tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_blob_stash(mocker) -> None:
     container = "mock0container"
-    blob_port = os.environ.get("BLOB_PORT", 10000)
+    blob_port = os.environ.get("BLOB_PORT", "10000")
     bsc = BlobServiceClient.from_connection_string(
         f"DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:{blob_port}/devstoreaccount1;"
     )
-    try:
+    with contextlib.suppress(Exception):
         await bsc.create_container(container)
-    except Exception:
-        pass
     mocker.patch("ai4s.jobq.blob.BlobServiceClient", return_value=bsc)
     async with BlobContainer(
         storage_account="mock0storage0account",

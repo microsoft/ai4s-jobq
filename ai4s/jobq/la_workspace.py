@@ -1,5 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+import contextlib
 import os
 import sys
 from subprocess import CalledProcessError, check_output
@@ -20,7 +21,7 @@ def workspace_id_from_ikey(ikey: str):
     rg_client = ResourceGraphClient(credential)
     subscription_id = os.environ.get("JOBQ_AZURE_SUBSCRIPTION_ID")
     if not subscription_id:
-        try:
+        with contextlib.suppress(CalledProcessError):
             subscription_id = (
                 check_output(
                     ["az", "account", "show", "--query", "id", "-o", "tsv"],
@@ -29,8 +30,6 @@ def workspace_id_from_ikey(ikey: str):
                 .strip()
                 .split("\n")[0]
             )
-        except CalledProcessError:
-            pass
         LOG.error("You need to specify a subscription id to use instrumentation key lookup.")
         sys.exit(1)
 
@@ -43,30 +42,28 @@ def workspace_id_from_ikey(ikey: str):
     | project name, resourceGroup, subscriptionId, workspaceResourceId=tostring(properties.WorkspaceResourceId)
     """
 
-    result = rg_client.resources(
+    result = rg_client.resources(  # type: ignore[call-overload]
         query={"subscriptions": [], "query": query}  # [] = all accessible subs
     )
 
     if not result.data or len(result.data) == 0:
         raise WorkspaceNotFoundError("No Application Insights found for that instrumentation key.")
-    else:
-        item = result.data[0]
-        LOG.info(
-            f"Found App Insights: {item['name']} in RG {item['resourceGroup']} (sub {item['subscriptionId']})"
-        )
+    item = result.data[0]
+    LOG.info(
+        f"Found App Insights: {item['name']} in RG {item['resourceGroup']} (sub {item['subscriptionId']})"
+    )
 
-        if item["workspaceResourceId"]:
-            ws_parts = item["workspaceResourceId"].split("/")
-            ws_rg = ws_parts[4]
-            ws_name = ws_parts[-1]
-            sub_id = item["subscriptionId"]
+    if item["workspaceResourceId"]:
+        ws_parts = item["workspaceResourceId"].split("/")
+        ws_rg = ws_parts[4]
+        ws_name = ws_parts[-1]
+        sub_id = item["subscriptionId"]
 
-            la_client = LogAnalyticsManagementClient(credential, sub_id)
-            ws = la_client.workspaces.get(ws_rg, ws_name)
-            LOG.info(f"Workspace name: {ws.name}")
-            return ws.customer_id
-        else:
-            raise WorkspaceNotFoundError("This App Insights isn’t workspace-based.")
+        la_client = LogAnalyticsManagementClient(credential, sub_id)
+        ws = la_client.workspaces.get(ws_rg, ws_name)
+        LOG.info(f"Workspace name: {ws.name}")
+        return ws.customer_id
+    raise WorkspaceNotFoundError("This App Insights isn't workspace-based.")
 
 
 def workspace_id_from_connstr(ikey: str):
@@ -74,6 +71,7 @@ def workspace_id_from_connstr(ikey: str):
     if ikey.startswith("InstrumentationKey="):
         ikey = ikey.split("=")[1]
         return workspace_id_from_ikey(ikey)
+    return None
 
 
 def workspace_id_from_workspace_resource_id(rid: str):
@@ -86,6 +84,7 @@ def workspace_id_from_workspace_resource_id(rid: str):
         ws = la_client.workspaces.get(parts[4], parts[-1])
         LOG.info(f"Workspace name: {ws.name}")
         return ws.customer_id
+    return None
 
 
 def is_uid(s: str) -> bool:
@@ -109,15 +108,14 @@ def workspace_id_from_ws_name(name: str):
     | project name, resourceGroup, subscriptionId, customerId=tostring(properties.customerId)
     """
 
-    result = rg_client.resources(
+    result = rg_client.resources(  # type: ignore[call-overload]
         query={"subscriptions": [], "query": query}  # [] = all accessible subs
     )
 
     if not result.data or len(result.data) == 0:
         raise WorkspaceNotFoundError("No Log Analytics workspace found with that name.")
-    else:
-        item = result.data[0]
-        LOG.info(
-            f"Found LA Workspace: {item['name']} in RG {item['resourceGroup']} (sub {item['subscriptionId']})"
-        )
-        return item["customerId"]
+    item = result.data[0]
+    LOG.info(
+        f"Found LA Workspace: {item['name']} in RG {item['resourceGroup']} (sub {item['subscriptionId']})"
+    )
+    return item["customerId"]

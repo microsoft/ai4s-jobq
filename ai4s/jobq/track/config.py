@@ -7,21 +7,21 @@ import plotly.io as pio
 
 solarized_light_template = go.layout.Template(
     layout=go.Layout(
-        font=dict(family="Segoe UI, sans-serif", color="#657b83"),
+        font={"family": "Segoe UI, sans-serif", "color": "#657b83"},
         paper_bgcolor="#fdf6e3",
         plot_bgcolor="#eee8d5",
-        xaxis=dict(
-            gridcolor="#eee8d5",
-            zerolinecolor="#93a1a1",
-            linecolor="#586e75",
-            tickcolor="#586e75",
-        ),
-        yaxis=dict(
-            gridcolor="#eee8d5",
-            zerolinecolor="#93a1a1",
-            linecolor="#586e75",
-            tickcolor="#586e75",
-        ),
+        xaxis={
+            "gridcolor": "#eee8d5",
+            "zerolinecolor": "#93a1a1",
+            "linecolor": "#586e75",
+            "tickcolor": "#586e75",
+        },
+        yaxis={
+            "gridcolor": "#eee8d5",
+            "zerolinecolor": "#93a1a1",
+            "linecolor": "#586e75",
+            "tickcolor": "#586e75",
+        },
         colorway=[
             "#268bd2",
             "#2aa198",

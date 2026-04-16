@@ -81,7 +81,7 @@ class BlobStash(MSONable):
         self,
     ) -> AbstractContextManager[None]:
         # Using the BlobClient as a context manager downloads the file to a temporary directory.
-        return nullcontext() if self.local_cache_dir else self.blob_client  # type: ignore
+        return nullcontext() if self.local_cache_dir else self.blob_client
 
     def retrieve(self) -> Any:
         expected_md5sum = self.md5sum

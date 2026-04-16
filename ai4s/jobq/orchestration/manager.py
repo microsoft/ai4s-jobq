@@ -25,11 +25,11 @@ try:
 except ImportError:
     HAVE_OTEL = False
 
-    def get_tracer(x) -> None:  # type: ignore
+    def get_tracer(x) -> None:
         return None
 
 
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from functools import wraps
 from itertools import chain
 
@@ -51,7 +51,7 @@ SeedType = ty.TypeVar("SeedType")
 
 
 try:
-    import mlflow  # type: ignore
+    import mlflow  # type: ignore[import-not-found]
 
     HAVE_MLFLOW = True
 except ImportError:
@@ -59,7 +59,7 @@ except ImportError:
     mlflow = None
 
 
-class TooManyFailuresException(Exception):
+class TooManyFailuresException(Exception):  # noqa: N818 — public API name
     pass
 
 
@@ -118,7 +118,7 @@ async def batch_enqueue(
         tasks: ty.Iterable[TaskType] = work_spec
 
         class DummyWorkSpec(WorkSpecification):
-            async def list_tasks(self, SeedType, force: bool = False):
+            async def list_tasks(self, SeedType, force: bool = False):  # noqa: N803
                 for task in tasks:
                     yield task
 
@@ -217,10 +217,8 @@ async def batch_enqueue(
 
         # Give all workers a chance to finish
         for fut in asyncio.as_completed(list(chain(enum_workers, enq_workers)), timeout=30):
-            try:
+            with suppress(asyncio.CancelledError):
                 await fut
-            except asyncio.CancelledError:
-                pass
 
     return futures
 
@@ -403,7 +401,7 @@ async def launch_workers(
             shutdown_event.set()
 
         async def _wait_for_clear(event):
-            while event.is_set():
+            while event.is_set():  # noqa: ASYNC110 — polling pattern
                 await asyncio.sleep(1)
 
         async def wait_for_hard_stop(processor) -> bool:
@@ -440,7 +438,6 @@ async def launch_workers(
                 else:
                     # the shutdown happens for another reason, not a preemption
                     LOG.info("the shutdown happens for another reason, not a preemption")
-                    pass
 
             for task in tasks:
                 task.cancel()
@@ -597,24 +594,22 @@ async def launch_workers(
                             return_when=asyncio.FIRST_COMPLETED,
                         )
                         if shutdown_event_task in done and flag_pass_signal_to_subprocess:
-                            assert (
-                                shutdown_event.is_set()
-                            ), "Shutdown event should be set if we got here"
+                            assert shutdown_event.is_set(), (
+                                "Shutdown event should be set if we got here"
+                            )
                             # Cancel the worker if shutdown was requested (most likely preemption)
                             LOG.info("Worker %d shutdown requested.", idx)
                             for task in pending:
                                 task.cancel()
-                                try:
+                                with suppress(asyncio.CancelledError):
                                     await task
-                                except asyncio.CancelledError:
-                                    pass
                             await flush_app_insights()
                             LOG.info("Worker %d canceled due to shutdown event.", idx)
                             if not await wait_for_hard_stop(processor):
                                 LOG.info("Continuing to launch new workers.")
                                 continue
                             return
-                        elif shutdown_event_task in done:
+                        if shutdown_event_task in done:
                             # do not cancel running tasks, but do not start new ones
                             LOG.info(
                                 "Worker %d graceful shutdown requested, not cancelling jobs but not accepting new ones.",
@@ -624,9 +619,8 @@ async def launch_workers(
                             # we give other processes on the same machine time to stop
                             raise WorkerCanceled
 
-                        else:
-                            assert worker_task in done, "Worker task should be done if we got here"
-                            success = await worker_task
+                        assert worker_task in done, "Worker task should be done if we got here"
+                        success = await worker_task
 
                         if show_progress:
                             progress.update(task_id, advance=1)
@@ -638,7 +632,7 @@ async def launch_workers(
                                 LOG.error(
                                     "Maximum number of consecutive failures reached. Exiting."
                                 )
-                                raise TooManyFailuresException()
+                                raise TooManyFailuresException
                     except WorkerCanceled:
                         await flush_app_insights()
                         LOG.info("Worker %d canceled.", idx)
@@ -658,7 +652,7 @@ async def launch_workers(
         worker_tasks = [asyncio.create_task(worker(idx)) for idx in range(num_workers)]
         for coro in asyncio.as_completed(worker_tasks):
             try:
-                await coro  # type: ignore
+                await coro
             except asyncio.CancelledError:
                 pass
             except TooManyFailuresException:
@@ -666,10 +660,8 @@ async def launch_workers(
                 for task in worker_tasks:
                     task.cancel()
                 for fut in asyncio.as_completed(worker_tasks, timeout=30):
-                    try:
+                    with suppress(asyncio.CancelledError):
                         await fut
-                    except asyncio.CancelledError:
-                        pass
                 raise
 
 
@@ -692,10 +684,8 @@ async def _call_periodically(
 
     task.cancel()
 
-    try:
+    with suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
 
 # We periodically log a 'heartbeat' message to indicate that the worker is still running.

@@ -477,7 +477,7 @@ class Workforce:
         cluster_info = self.get_compute_infos().properties.properties
         max_node_count = cluster_info.scaleSettings["maxNodeCount"]
         nb_available = max_node_count - cluster_info.targetNodeCount  # type: ignore[operator]
-        max_to_hire = nb_available - current_state.num_pending  # type: ignore[operator]
+        max_to_hire = nb_available - current_state.num_pending
         return max_to_hire
 
     def hire(self, n: int, batch_size=200) -> None:

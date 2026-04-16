@@ -32,7 +32,7 @@ class StorageQueueEnvelope(Envelope):
         backend: "StorageQueueBackend",
         cancel_heartbeat_event: asyncio.Event,
         heartbeat_cancelled_event: asyncio.Event,
-        lock_lost_event: ty.Optional[asyncio.Event] = None,
+        lock_lost_event: asyncio.Event | None = None,
     ):
         self.message = message
         self.backend = backend
@@ -90,15 +90,15 @@ class StorageQueueBackend(JobQBackend):
         self,
         queue_name: str,
         *,
-        storage_account: ty.Optional[str] = None,
-        connection_string: ty.Optional[str] = None,
-        credential: ty.Optional[ty.Union[str, AsyncTokenCredential]] = None,
+        storage_account: str | None = None,
+        connection_string: str | None = None,
+        credential: str | AsyncTokenCredential | None = None,
     ):
         self.connection_string = connection_string
         self.storage_account = storage_account
         self.queue_name = queue_name
-        self.queue_client: ty.Optional[QueueClient] = None
-        self.dead_letter_queue_client: ty.Optional[QueueClient] = None
+        self.queue_client: QueueClient | None = None
+        self.dead_letter_queue_client: QueueClient | None = None
         self.credential = credential
 
         if self.queue_name == "my-unique-queue":
@@ -133,12 +133,12 @@ class StorageQueueBackend(JobQBackend):
 
     async def __aexit__(
         self,
-        exc_type: ty.Optional[ty.Type[BaseException]],
-        exc: ty.Optional[BaseException],
-        tb: ty.Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
     ) -> None:
         assert self.queue_client is not None
-        await self.queue_client.__aexit__(exc_type, exc, tb)  # type: ignore
+        await self.queue_client.__aexit__(exc_type, exc, tb)
         if self.dead_letter_queue_client is not None:
             await self.dead_letter_queue_client.__aexit__(exc_type, exc, tb)
 
@@ -167,9 +167,9 @@ class StorageQueueBackend(JobQBackend):
             if with_heartbeat:
                 heartbeat_interval = visibility_timeout.total_seconds() / 2
 
-                assert (
-                    heartbeat_interval > 0
-                ), "Visibility timeout must be at least 2 seconds for heartbeat to work."
+                assert heartbeat_interval > 0, (
+                    "Visibility timeout must be at least 2 seconds for heartbeat to work."
+                )
 
                 await stack.enter_async_context(
                     self._heartbeat_worker(
@@ -187,9 +187,8 @@ class StorageQueueBackend(JobQBackend):
             try:
                 task = Task.deserialize(envelope["content"])
             except Exception:
-                LOG.error(
+                LOG.exception(
                     "Stopping processing due to deserialization error to prevent potential data loss.",
-                    exc_info=True,
                 )
                 raise
             else:
@@ -328,21 +327,19 @@ class StorageQueueBackend(JobQBackend):
         cancel_heartbeat_event.set()
         await heartbeat_cancelled_event.wait()
 
-        try:
+        with suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
         LOG.debug("Done with heartbeat of %s", message.id)
 
     def generate_sas(self, ttl: timedelta) -> str:
         assert self.credential is not None, "Credential is required to generate SAS token."
-        assert isinstance(
-            self.credential, str
-        ), "Credential needs to be of type str to generate SAS token."
+        assert isinstance(self.credential, str), (
+            "Credential needs to be of type str to generate SAS token."
+        )
         assert self.queue_client is not None
-        assert (
-            self.queue_client.account_name is not None
-        ), "Account name is required to generate SAS token."
+        assert self.queue_client.account_name is not None, (
+            "Account name is required to generate SAS token."
+        )
         return generate_queue_sas(
             account_name=self.queue_client.account_name,
             account_key=self.credential,
@@ -352,9 +349,9 @@ class StorageQueueBackend(JobQBackend):
             expiry=datetime.now(timezone.utc) + ttl,
         )
 
-    async def peek(self, n: int = 1, as_json=False) -> ty.List[QueueMessage]:
+    async def peek(self, n: int = 1, as_json=False) -> list[QueueMessage]:
         assert self.queue_client is not None
         return await self.queue_client.peek_messages(n)
 
-    async def get_result(self, session_id: str, timeout: ty.Optional[timedelta] = None) -> Response:
+    async def get_result(self, session_id: str, timeout: timedelta | None = None) -> Response:
         raise NotImplementedError("get_result is not implemented for StorageQueueBackend")

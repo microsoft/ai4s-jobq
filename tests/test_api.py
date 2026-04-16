@@ -18,9 +18,9 @@ async def test_generate(async_queue, mocker):
         push = mocker.patch.object(async_queue, "push")
 
         class Gen(WorkSpecification):
-            async def list_tasks(self, seed, force):
-                yield dict(value=1)
-                yield dict(value=2)
+            async def list_tasks(self, seed, force):  # type: ignore[override]
+                yield {"value": 1}
+                yield {"value": 2}
 
         # call simple API for enqueueing
         await batch_enqueue(async_queue, Gen(), num_list_task_workers=1, num_enqueue_workers=1)
@@ -30,13 +30,13 @@ async def test_generate(async_queue, mocker):
         push.assert_has_awaits(
             [
                 call(
-                    dict(value=1),
+                    {"value": 1},
                     num_retries=1,
                     reply_requested=False,
                     worker_interface=worker_interface,
                 ),
                 call(
-                    dict(value=2),
+                    {"value": 2},
                     num_retries=1,
                     reply_requested=False,
                     worker_interface=worker_interface,
@@ -46,10 +46,10 @@ async def test_generate(async_queue, mocker):
 
 
 async def test_process(async_queue, mocker):
-    await async_queue.push(dict(value=1))
-    await async_queue.push(dict(value=2))
+    await async_queue.push({"value": 1})
+    await async_queue.push({"value": 2})
 
-    calls = list()
+    calls = []
 
     class Proc(Processor):
         async def __call__(self, **kwargs):
@@ -72,6 +72,6 @@ async def test_sequential(async_queue, tmp_path):
     fn = tmp_path / "test"
 
     async with SequentialProcessor(func) as proc:
-        await async_queue.push(dict(fn=str(fn), value=ident))
+        await async_queue.push({"fn": str(fn), "value": ident})
         assert await async_queue.pull_and_execute(proc)
         assert fn.read_text() == ident

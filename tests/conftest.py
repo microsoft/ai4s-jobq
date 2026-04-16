@@ -4,8 +4,8 @@ import pytest
 
 from ai4s.jobq import JobQ
 
-BLOB_PORT = os.environ.get("BLOB_PORT", 10000)
-QUEUE_PORT = os.environ.get("QUEUE_PORT", 10001)
+BLOB_PORT = os.environ.get("BLOB_PORT", "10000")
+QUEUE_PORT = os.environ.get("QUEUE_PORT", "10001")
 
 
 def pytest_addoption(parser):

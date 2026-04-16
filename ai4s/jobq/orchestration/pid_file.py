@@ -34,6 +34,7 @@ class PidFile:
 
     def __init__(self, path: str):
         self.pid_file = path
+        self.pidfd: int | None = None
 
     def __enter__(self):
         try:
@@ -49,10 +50,9 @@ class PidFile:
                     raise ProcessRunningException(
                         "process already running in %s as pid %s", self.pid_file, pid
                     ) from e
-                else:
-                    os.remove(self.pid_file)
-                    LOG.warning("removed stale lockfile %s", self.pid_file)
-                    self.pidfd = os.open(self.pid_file, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+                os.remove(self.pid_file)
+                LOG.warning("removed stale lockfile %s", self.pid_file)
+                self.pidfd = os.open(self.pid_file, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
             else:
                 raise
 
@@ -64,12 +64,11 @@ class PidFile:
         if exception_type is None:
             self._remove()
             return True
-        elif issubclass(exception_type, ProcessRunningException):
+        if issubclass(exception_type, ProcessRunningException):
             return False
-        else:
-            if self.pidfd:
-                self._remove()
-            return False
+        if self.pidfd:
+            self._remove()
+        return False
 
     def _remove(self):
         LOG.info("removed pidfile %s", self.pid_file)
@@ -77,7 +76,7 @@ class PidFile:
 
     @staticmethod
     def check_pid(pid_file: str) -> int | None:
-        with open(pid_file, "r") as f:
+        with open(pid_file) as f:
             try:
                 pid_str = f.read()
                 pid = int(pid_str)
@@ -101,5 +100,3 @@ class ProcessRunningException(BaseException):
     There is an attempt to create a pid file;
     however this pid file is already in use by another process.
     """
-
-    pass

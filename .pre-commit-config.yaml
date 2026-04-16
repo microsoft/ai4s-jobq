@@ -1,31 +1,27 @@
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.3.0
+    rev: v5.0.0
     hooks:
     -   id: check-yaml
+    -   id: check-added-large-files
+        args: [--maxkb=500]
+    -   id: check-merge-conflict
+    -   id: detect-private-key
 -   repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.1.1
+    rev: v1.20.1
     hooks:
       - id: mypy
         types: [python]
+        # Only check source code, not tests (matches CI: `mypy ai4s/`)
+        files: ^ai4s/
+        # Install the package itself so mypy sees all runtime deps and their types.
         additional_dependencies:
-          - types-PyYAML
-          - types-python-dateutil
-          - types-tabulate
-          - types-requests
-          - types-cachetools
-          - types-toml
-          - types-aiofiles
-          - types-pytz
-          - types-six
+          - ai4s-jobq[dev,track]
         args:
-          - --ignore-missing-imports
           - --no-namespace-packages
-          - --python-version=3.10
--   repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.7.0
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.6
     hooks:
       - id: ruff
-        args: [--fix, --target-version=py311]
+        args: [--fix]
       - id: ruff-format
-        args: [--target-version=py311]

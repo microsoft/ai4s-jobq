@@ -1,5 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
+from __future__ import annotations
+
 import asyncio
 import os
 import re
@@ -8,11 +10,12 @@ import typing as ty
 from pathlib import Path
 from subprocess import call
 from tempfile import TemporaryDirectory
+from typing import ClassVar
 
 import aiohttp
 
 try:
-    from typing import Self  # type: ignore
+    from typing import Self
 except ImportError:
     from typing_extensions import Self
 
@@ -20,10 +23,6 @@ from ai4s.jobq.work import Processor, ShellCommandProcessor
 
 from ..work import _AbstractAsyncContextManager
 from .background_dirsync import BackgroundDirSync
-
-if ty.TYPE_CHECKING:
-    pass
-
 
 AMULET_REMOTE_LOCAL_DIR_TEMPLATE = "/mnt/default/amulet-remote/{uuid}"
 
@@ -60,13 +59,13 @@ class MapInConfigProcessor(Processor):
         self.main_cmd = "python -m utilities.amlt_remote_main"
 
     @staticmethod
-    def _truish(value: ty.Optional[str]) -> bool:
+    def _truish(value: str | None) -> bool:
         if value is None:
             return False
         return value.lower() in ("true", "1", "yes", "y")
 
     @classmethod
-    def _run(cls, cmd: str, env: ty.Dict[str, str]) -> int:
+    def _run(cls, cmd: str, env: dict[str, str]) -> int:
         with BackgroundDirSync(
             src=env["AMLT_DIRSYNC_DIR"],
             dst=env["AMLT_OUTPUT_DIR"],
@@ -79,19 +78,17 @@ class MapInConfigProcessor(Processor):
         ):
             return call(cmd, shell=True, env=env, cwd=env.get("AMLT_CODE_DIR", "."))
 
-    async def __call__(
-        self, uuid: str, _job_id: str, code_zip_url: ty.Optional[str] = None
-    ) -> None:
+    async def __call__(self, uuid: str, _job_id: str, code_zip_url: str | None = None) -> None:
         cmd = f"{self.main_cmd} {uuid}"
 
         env = os.environ.copy()
         env.update(
-            dict(
-                PYTHONPATH="projects",
-                AMULET_REMOTE_LOCAL_DIR_TEMPLATE=AMULET_REMOTE_LOCAL_DIR_TEMPLATE,
-            )
+            {
+                "PYTHONPATH": "projects",
+                "AMULET_REMOTE_LOCAL_DIR_TEMPLATE": AMULET_REMOTE_LOCAL_DIR_TEMPLATE,
+            }
         )
-        cwd: ty.Optional[Path] = Path(".")
+        cwd: Path | None = Path(".")
         if code_zip_url is not None:
             cwd = await self.code_cache.get_local_code_dir(code_zip_url)
 
@@ -105,12 +102,12 @@ class MapInConfigProcessor(Processor):
 
 
 class CodeCache(_AbstractAsyncContextManager["CodeCache"]):
-    LOCK = asyncio.Lock()
-    CACHE: ty.Dict[str, Path] = {}
+    LOCK: ClassVar[asyncio.Lock] = asyncio.Lock()
+    CACHE: ClassVar[dict[str, Path]] = {}
 
-    def __init__(self, session: ty.Optional[aiohttp.ClientSession] = None) -> None:
+    def __init__(self, session: aiohttp.ClientSession | None = None) -> None:
         super().__init__()
-        self.tempdir: ty.Optional[TemporaryDirectory[str]] = None
+        self.tempdir: TemporaryDirectory[str] | None = None
         self.session = session or aiohttp.ClientSession()
 
     async def __aenter__(self) -> Self:
@@ -122,11 +119,11 @@ class CodeCache(_AbstractAsyncContextManager["CodeCache"]):
         if self.tempdir is not None:
             self.tempdir.cleanup()
         await super().__aexit__(*args)
-        return None
+        return
 
     async def get_local_code_dir(
-        self, url: str, headers: ty.Optional[ty.Dict[str, str]] = None
-    ) -> ty.Optional[Path]:
+        self, url: str, headers: dict[str, str] | None = None
+    ) -> Path | None:
         if url.startswith("https://devstoreaccount1.blob.core.windows.net"):
             # this is for azurite compatibility
             url = url.replace(
@@ -134,7 +131,7 @@ class CodeCache(_AbstractAsyncContextManager["CodeCache"]):
                 "http://127.0.0.1:10000",
             )
             headers = headers or {}
-            headers.update(dict(host="devstoreaccount1.blob.core.windows.net"))
+            headers.update({"host": "devstoreaccount1.blob.core.windows.net"})
 
             # add the azurite default sas token
             if "?sv" not in url:

@@ -75,7 +75,7 @@ class BlobContainer(_AbstractAsyncContextManager["BlobContainer"]):
         max_concurrency: int = 10,
         max_blob_connections: int = 1000,
         prefix: str = "",
-        credential: ty.Optional[ty.Union[str, AsyncTokenCredential]] = None,
+        credential: str | AsyncTokenCredential | None = None,
         output_filename: str = "output.txt",
     ) -> None:
         if credential is None:
@@ -112,13 +112,13 @@ class BlobContainer(_AbstractAsyncContextManager["BlobContainer"]):
     async def __aexit__(self, *args: ty.Any) -> None:
         await super().__aexit__(*args)
         await self._stack.__aexit__(*args)
-        return None
+        return
 
     async def download_file(
         self,
         blob_name: str,
         tmp_dir: str,
-        max_concurrency: ty.Optional[int] = None,
+        max_concurrency: int | None = None,
         use_basename: bool = False,
         **kwargs: ty.Any,
     ) -> str:
@@ -131,7 +131,7 @@ class BlobContainer(_AbstractAsyncContextManager["BlobContainer"]):
             max_concurrency = max_concurrency or self._max_concurrency
             stream = await self.client.download_blob(blob_name, max_concurrency=max_concurrency)
             with open(filename, "wb") as f:
-                await stream.readinto(f)  # type: ignore
+                await stream.readinto(f)
             self.stats.n_downloaded += 1
             self.stats.download_bytes += stream.size if stream.size else 0
             LOG.debug("Done downloading %s", blob_name)
@@ -144,7 +144,7 @@ class BlobContainer(_AbstractAsyncContextManager["BlobContainer"]):
         self,
         blob_name: str,
         tmp_dir: str,
-        max_concurrency: ty.Optional[int] = None,
+        max_concurrency: int | None = None,
         use_basename: bool = False,
         **kwargs: ty.Any,
     ) -> tuple[str, BlobProperties]:
@@ -165,14 +165,14 @@ class BlobContainer(_AbstractAsyncContextManager["BlobContainer"]):
         blob_dir: str,
         tmp_dir: str,
         max_concurrent_files: int = 10,
-        max_concurrency: ty.Optional[int] = None,
+        max_concurrency: int | None = None,
     ) -> None:
         """Downloads a directory from blob storage to a local directory."""
         futures = []
         blob_walk = self.client.walk_blobs(name_starts_with=blob_dir.rstrip("/") + "/")
         semaphore = asyncio.Semaphore(max_concurrent_files)
         async for blob in blob_walk:
-            futures.append(
+            futures.append(  # noqa: PERF401 — async for can't use list comprehension
                 self._bounded_download_file(
                     semaphore=semaphore,
                     blob_name=blob.name,  # pyright: ignore
@@ -188,7 +188,7 @@ class BlobContainer(_AbstractAsyncContextManager["BlobContainer"]):
         semaphore: asyncio.Semaphore,
         blob_name: str,
         tmp_dir: str,
-        max_concurrency: ty.Optional[int] = None,
+        max_concurrency: int | None = None,
     ) -> None:
         async with semaphore:
             await self.download_file(
@@ -203,7 +203,7 @@ class BlobContainer(_AbstractAsyncContextManager["BlobContainer"]):
         local_file: str,
         blob_name: str,
         overwrite: bool = True,
-        max_concurrency: ty.Optional[int] = None,
+        max_concurrency: int | None = None,
     ) -> None:
         """Uploads a local file to blob storage."""
         LOG.debug("Uploading %s to %s", local_file, blob_name)
@@ -253,7 +253,7 @@ class BlobContainer(_AbstractAsyncContextManager["BlobContainer"]):
         local_dir: str,
         blob_dir: str,
         overwrite: bool = True,
-        max_concurrency: ty.Optional[int] = None,
+        max_concurrency: int | None = None,
     ) -> None:
         """
         Uploads all files in a local directory to a blob directory.
@@ -284,7 +284,7 @@ class CrossWorkerCache(ty.Generic[T]):
     LOCK = asyncio.Lock()
 
     def __init__(self) -> None:
-        self._cache: ty.Dict[str, T] = {}
+        self._cache: dict[str, T] = {}
 
     async def retrieve(self, key: str, **kwargs: ty.Any) -> T:
         raise NotImplementedError
@@ -297,11 +297,11 @@ class CrossWorkerCache(ty.Generic[T]):
 
 
 class BlobDownloadCache(CrossWorkerCache[str], _AbstractAsyncContextManager["BlobDownloadCache"]):
-    def __init__(self, blob_enumerator: BlobContainer, tmp_dir: ty.Optional[str] = None):
+    def __init__(self, blob_enumerator: BlobContainer, tmp_dir: str | None = None):
         super().__init__()
         self.blob_enumerator = blob_enumerator
         self.tmp_dir_name = tmp_dir
-        self.tmp_dir: ty.Optional[TemporaryDirectory[str]] = None
+        self.tmp_dir: TemporaryDirectory[str] | None = None
 
     async def __aenter__(self) -> "BlobDownloadCache":
         if self.tmp_dir_name is None:
@@ -315,11 +315,11 @@ class BlobDownloadCache(CrossWorkerCache[str], _AbstractAsyncContextManager["Blo
     async def __aexit__(self, *args: ty.Any) -> None:
         if self.tmp_dir is not None:
             self.tmp_dir.__exit__(*args)
-        return None
+        return
 
     async def retrieve(self, key: str, **kwargs: ty.Any) -> str:
         """Downloads a blob to a temporary directory and returns its local name."""
-        assert (
-            self.tmp_dir_name is not None
-        ), "temporary directory not set, use the cache as an async context manager."
+        assert self.tmp_dir_name is not None, (
+            "temporary directory not set, use the cache as an async context manager."
+        )
         return await self.blob_enumerator.download_file(key, tmp_dir=self.tmp_dir_name, **kwargs)

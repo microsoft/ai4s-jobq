@@ -1,0 +1,89 @@
+name: PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  license-headers:
+    name: Check License Headers
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Check copyright headers on new/modified Python files
+      run: |
+        # Get list of added or modified Python files in this PR
+        FILES=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.py' || true)
+        if [ -z "$FILES" ]; then
+          echo "No new/modified Python files to check."
+          exit 0
+        fi
+
+        MISSING=""
+        for f in $FILES; do
+          if ! head -5 "$f" | grep -q "Copyright (c) Microsoft Corporation"; then
+            MISSING="$MISSING\n  $f"
+          fi
+        done
+
+        if [ -n "$MISSING" ]; then
+          echo "::error::Missing Microsoft copyright header in:$MISSING"
+          echo ""
+          echo "Expected header:"
+          echo "  # Copyright (c) Microsoft Corporation."
+          echo "  # Licensed under the MIT License."
+          exit 1
+        fi
+        echo "All Python files have copyright headers."
+
+  changelog:
+    name: Check CHANGELOG
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Verify CHANGELOG updated for non-trivial changes
+      run: |
+        # Count changed Python source files (excluding tests, docs, configs)
+        SRC_CHANGES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'ai4s/**/*.py' | wc -l)
+        if [ "$SRC_CHANGES" -eq 0 ]; then
+          echo "No source changes — CHANGELOG check skipped."
+          exit 0
+        fi
+
+        CHANGELOG_CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'CHANGELOG.md' | wc -l)
+        if [ "$CHANGELOG_CHANGED" -eq 0 ]; then
+          echo "::warning::Source files changed but CHANGELOG.md was not updated. Consider adding an entry."
+        else
+          echo "CHANGELOG.md updated."
+        fi
+
+  lint-annotations:
+    name: Lint Annotations
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+    - name: Ruff with GitHub annotations
+      run: ruff check --output-format=github .
+    - name: Ruff format check
+      run: ruff format --check .
+    - name: Mypy with annotations
+      run: |
+        # Use a custom error format that GitHub can parse as annotations
+        mypy ai4s/ --no-namespace-packages --no-error-summary 2>&1 | \
+          sed 's/\(.*\):\([0-9]*\): error: \(.*\)/::error file=\1,line=\2::\3/' || true
+        # Run again for the exit code
+        mypy ai4s/ --no-namespace-packages
