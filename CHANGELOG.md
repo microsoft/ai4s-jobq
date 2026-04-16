@@ -1,6 +1,16 @@
 CHANGELOG
 =========
 
+3.6.1 (unreleased)
+------------------
+
+Fixes:
+
+* **Suppress OTel exporter log spam after preemption.**
+  Set the ``azure.monitor.opentelemetry.exporter.export._base`` logger to
+  ``CRITICAL`` so that failed telemetry exports no longer flood user logs
+  with tracebacks when the AppInsights endpoint is unreachable.
+
 3.6.0 (2026-04-09)
 ------------------
 
