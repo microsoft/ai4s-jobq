@@ -359,9 +359,9 @@ def setup_logging(
             # AppInsights endpoint is unreachable (e.g. after preemption).
             # The exporter logs ERROR + full traceback on every failed
             # export attempt, which can drown out real user output.
-            logging.getLogger(
-                "azure.monitor.opentelemetry.exporter.export._base"
-            ).setLevel(logging.CRITICAL)
+            logging.getLogger("azure.monitor.opentelemetry.exporter.export._base").setLevel(
+                logging.CRITICAL
+            )
 
             # Find the Azure Monitor LoggingHandler by type instead of assuming position
             azure_handler = None
