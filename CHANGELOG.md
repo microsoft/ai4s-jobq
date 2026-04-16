@@ -1,7 +1,7 @@
 CHANGELOG
 =========
 
-3.7.0 (unreleased)
+3.7.0 (2026-04-16)
 ------------------
 
 Breaking changes:
