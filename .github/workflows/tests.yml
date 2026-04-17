@@ -55,7 +55,7 @@ jobs:
     - name: markdownlint (Markdown)
       run: markdownlint '**/*.md' --ignore node_modules --ignore vale-styles
     - name: Vale (prose style)
-      run: vale --minAlertLevel error docs/ README.md CONTRIBUTING.md SUPPORT.md SECURITY.md CODE_OF_CONDUCT.md
+      run: vale --minAlertLevel error docs/ README.md CONTRIBUTING.md SUPPORT.md SECURITY.md CODE_OF_CONDUCT.md CHANGELOG.md
 
   test:
     name: Test (Python ${{ matrix.python-version }})

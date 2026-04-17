@@ -75,7 +75,8 @@ disabled, MD024 siblings_only). Files excluded in `.markdownlintignore` (CHANGEL
 - Custom rules: `JobQ.Headings` (sentence-case with acronym exceptions),
   `JobQ.Latin` (prefer "for example" over "e.g.").
 - The pre-commit hook runs with `--minAlertLevel error` so warnings don't block commits.
-- CHANGELOG.md is excluded from all Vale rules (auto-generated content).
+- CHANGELOG.md has `Vale.Repetition` and `JobQ.Headings` disabled (changelog entries
+  naturally repeat words and use an all-caps title).
 - Noisy rules (passive voice, contractions, parenthetical usage) are disabled — see `.vale.ini`.
 
 When writing or editing docs, prefer plain English over Latin abbreviations ("for example" not
