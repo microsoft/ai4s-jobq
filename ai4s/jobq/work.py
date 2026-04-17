@@ -16,6 +16,7 @@ from functools import partial
 from multiprocessing import Manager
 from queue import Empty
 from tempfile import TemporaryDirectory
+from typing import ClassVar
 
 from rich.progress import TextColumn
 
@@ -23,7 +24,7 @@ from ai4s.jobq.entities import WorkerCanceled
 from ai4s.jobq.ext.background_dirsync import BackgroundDirSync
 
 try:
-    from typing import Self  # type: ignore
+    from typing import Self
 except ImportError:
     from typing_extensions import Self
 
@@ -38,7 +39,7 @@ T = ty.TypeVar("T")
 class ProcessPoolRegistry:
     """Registry for process pools."""
 
-    _pools: set["ProcessPool"] = set()
+    _pools: ClassVar[set["ProcessPool"]] = set()
 
     @classmethod
     def remove_pool(cls, pool: "ProcessPool") -> None:
@@ -55,7 +56,7 @@ class ProcessPoolRegistry:
             *(pool._wait_for_msg_queue_to_drain() for pool in cls._pools),
             return_exceptions=True,
         )
-        for pool, result in zip(cls._pools, results):
+        for pool, result in zip(cls._pools, results, strict=False):
             if isinstance(result, Exception):
                 LOG.error(
                     "Exception while draining message queue for pool %r: %r",
@@ -77,7 +78,7 @@ else:
 
 def _env_wrapper(
     func: ty.Callable[[], ResultType],
-    env: ty.Optional[ty.Dict[str, str]] = None,
+    env: dict[str, str] | None = None,
 ) -> ResultType:
     if env:
         for k, v in env.items():
@@ -106,7 +107,7 @@ async def run_cmd_and_log_outputs(
     cmd: str,
     log_msg_queue: "queue.Queue",
     job_id: str,
-    cwd: ty.Optional[str],
+    cwd: str | None,
     emulate_tty: bool = False,
 ) -> int:
     """
@@ -124,7 +125,7 @@ async def run_cmd_and_log_outputs(
         try:
             log_msg_queue.put((level, job_id, msg))
         except Exception:
-            print(f"Could not log {level} message: {msg}")
+            print(f"Could not log {level} message: {msg}")  # noqa: T201
 
     if executable is not None:
         if not emulate_tty:
@@ -217,8 +218,8 @@ async def run_cmd_and_log_outputs(
         ret = await process.wait()
         if terminated:
             log(logging.DEBUG, "Raising WorkerCanceled since process was terminated")
-            raise WorkerCanceled()
-        return ret
+            raise WorkerCanceled
+        return ret  # noqa: B012 — return in finally is intentional
 
 
 class DefaultSeed:
@@ -233,7 +234,7 @@ class StackManager(_AbstractAsyncContextManager["StackManager"]):
     def __init__(self) -> None:
         super().__init__()
         self.stack = AsyncExitStack()
-        self.context_managers: ty.List[AbstractAsyncContextManager[ty.Any]] = []
+        self.context_managers: list[AbstractAsyncContextManager[ty.Any]] = []
 
     def register_context_manager(self, *manager: _AbstractAsyncContextManager[ty.Any]) -> None:
         """Registers a context manager to be entered and exited with this one."""
@@ -250,7 +251,7 @@ class StackManager(_AbstractAsyncContextManager["StackManager"]):
 
     async def __aexit__(self, *args: ty.Any) -> None:
         await self.stack.__aexit__(*args)
-        return None
+        return
 
 
 class WorkSpecification(StackManager, ty.Generic[Task, Seed], ABC):
@@ -287,9 +288,7 @@ class WorkSpecification(StackManager, ty.Generic[Task, Seed], ABC):
         """
         return False
 
-    async def enqueue_task(
-        self, task: Task, force: bool = False
-    ) -> ty.Optional[ty.Union[ty.Dict[str, ty.Any], str]]:
+    async def enqueue_task(self, task: Task, force: bool = False) -> dict[str, ty.Any] | str | None:
         """
         Enqueue a task. By default, the task is enqueued as-is as long as already_done(task) is False or force is True.
         """
@@ -317,8 +316,8 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     def __init__(self, pool_size: int = 100) -> None:
         self.pool_size = pool_size
         self.mp_manager = Manager()
-        self.log_msg_queue: ty.Optional["queue.Queue"] = None
-        self.__pool: ty.Optional[ProcessPoolExecutor] = None
+        self.log_msg_queue: queue.Queue | None = None
+        self.__pool: ProcessPoolExecutor | None = None
         self._shutdown_lock = asyncio.Lock()
         self._in_shutdown = False
         super().__init__()
@@ -363,7 +362,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         return self.__pool
 
     @staticmethod
-    def _truish(value: ty.Optional[str]) -> bool:
+    def _truish(value: str | None) -> bool:
         if value is None:
             return False
         return value.lower() in ("true", "1", "yes", "y")
@@ -371,8 +370,8 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     async def submit(
         self,
         func: ty.Callable[[], ResultType],
-        bg_dirsync_to: ty.Optional[str] = None,
-        env: ty.Optional[ty.Dict[str, str]] = None,
+        bg_dirsync_to: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> ResultType:
         """
         Run a function in a separate process. Make sure all parameters and
@@ -415,8 +414,8 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
                         # raise WorkerCanceled() instead of returning a (potentially incorrect) result.
                         await self._kill_subprocesses(loop)
             if self._in_shutdown:
-                raise WorkerCanceled()
-        return ty.cast(ResultType, ret)
+                raise WorkerCanceled
+        return ty.cast("ResultType", ret)
 
     async def _create_pool(self) -> ProcessPoolExecutor:
         return ProcessPoolExecutor(self.pool_size, initializer=_process_pool_signal_handler)
@@ -433,7 +432,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     async def __aenter__(self) -> Self:
         loop = asyncio.get_running_loop()
 
-        self.mp_manager.__enter__()  # type: ignore
+        self.mp_manager.__enter__()
         self.log_msg_queue = self.mp_manager.Queue()
 
         ProcessPoolRegistry.register_pool(self)
@@ -487,11 +486,11 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
             LOG.debug("Log queue task finished.")
         ProcessPoolRegistry.remove_pool(self)
         self.log_msg_queue = None
-        self.mp_manager.__exit__(*args)  # type: ignore
+        self.mp_manager.__exit__(*args)
         LOG.debug("MP manager exited.")
         await super().__aexit__(*args)
         LOG.debug("Pool exited.")
-        return None
+        return
 
 
 class SequentialProcessor(Processor):
@@ -529,7 +528,7 @@ class ShellCommandProcessor(Processor):
         cmd: str,
         apqueue: "queue.Queue",
         job_id: str,
-        cwd: ty.Optional[str],
+        cwd: str | None,
         emulate_tty: bool = False,
     ) -> int:
         """
@@ -548,9 +547,9 @@ class ShellCommandProcessor(Processor):
         self,
         cmd: str,
         _job_id: str,
-        bg_dirsync_to: ty.Optional[str] = None,
-        env: ty.Optional[ty.Dict[str, str]] = None,
-        cwd: ty.Optional[str] = None,
+        bg_dirsync_to: str | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
     ) -> int:
         assert self.pool.log_msg_queue is not None, "Log message queue not initialized."
         call = partial(
@@ -569,8 +568,7 @@ class ShellCommandProcessor(Processor):
         if ret_code != 0:
             self.stats.num_failed_jobq_tasks += 1
             raise RuntimeError(f"Command {cmd!r} failed with return code {ret_code}")
-        else:
-            self.stats.num_succeeded_jobq_tasks += 1
+        self.stats.num_succeeded_jobq_tasks += 1
         return ret_code
 
 
@@ -600,7 +598,7 @@ class ProgressStats(TextColumn):
         self.num_failed_jobq_tasks = 0
         self._fixed_text = ""
 
-    def dict(self) -> ty.Dict[str, ty.Any]:
+    def dict(self) -> dict[str, ty.Any]:
         return {
             "num_succeeded_tasks": self.num_succeeded_jobq_tasks,
             "num_failed_tasks": self.num_failed_jobq_tasks,

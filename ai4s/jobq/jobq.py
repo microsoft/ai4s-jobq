@@ -15,12 +15,8 @@ from typing import (
     AsyncGenerator,
     Awaitable,
     Callable,
-    Dict,
     Generator,
-    Optional,
-    Type,
     TypeVar,
-    Union,
 )
 
 import azure.core.exceptions
@@ -48,7 +44,7 @@ class JobQFuture(Awaitable[Response]):
     def __init__(self, jobq: "JobQ", job_id: str):
         self.jobq = jobq
         self.job_id = job_id
-        self._result: Optional[Response] = None
+        self._result: Response | None = None
 
     def __await__(self) -> Generator[Any, None, Response]:
         async def closure() -> Response:
@@ -59,7 +55,7 @@ class JobQFuture(Awaitable[Response]):
 
         return closure().__await__()
 
-    def result(self, timeout: Optional[timedelta] = None) -> Response:
+    def result(self, timeout: timedelta | None = None) -> Response:
         async def closure() -> Response:
             if self._result is not None:
                 return self._result
@@ -73,7 +69,7 @@ class JobQ:
     def __init__(
         self,
         backend: JobQBackend,
-        credential: Optional[Union[str, AsyncTokenCredential]] = None,
+        credential: str | AsyncTokenCredential | None = None,
     ):
         self._client = backend
         self._credential = credential
@@ -81,7 +77,7 @@ class JobQ:
     @classmethod
     @asynccontextmanager
     async def from_environment(
-        cls: Type[T],
+        cls: type[T],
         *,
         exist_ok: bool = True,
     ) -> AsyncGenerator[T, None]:
@@ -114,13 +110,13 @@ class JobQ:
     @classmethod
     @asynccontextmanager
     async def from_service_bus(
-        cls: Type[T],
+        cls: type[T],
         name: str,
         *,
-        fqns: Optional[str] = None,
-        credential: Optional[Any] = None,
+        fqns: str | None = None,
+        credential: Any | None = None,
         exist_ok: bool = True,
-        duplicate_detection_window: Optional[timedelta] = None,
+        duplicate_detection_window: timedelta | None = None,
     ) -> AsyncGenerator[T, None]:
         """Creates a new queue from a Service Bus."""
         from .backend.servicebus_rest import ServiceBusRestBackend
@@ -139,11 +135,11 @@ class JobQ:
     @classmethod
     @asynccontextmanager
     async def from_storage_queue(
-        cls: Type[T],
+        cls: type[T],
         name: str,
         *,
         storage_account: str,
-        credential: Optional[Union[str, AsyncTokenCredential]],
+        credential: str | AsyncTokenCredential | None,
         exist_ok: bool = True,
         **kwargs: Any,
     ) -> AsyncGenerator[T, None]:
@@ -161,7 +157,7 @@ class JobQ:
     async def get_approximate_size(self) -> int:
         return await self._client.__len__()
 
-    async def sas_token(self, ttl: Optional[timedelta]) -> str:
+    async def sas_token(self, ttl: timedelta | None) -> str:
         """Generates a Shared Access Token (SAS) to grant access to a worker.
 
         Args:
@@ -175,7 +171,7 @@ class JobQ:
     @classmethod
     @asynccontextmanager
     async def from_connection_string(
-        cls: Type[T],
+        cls: type[T],
         name: str,
         *,
         connection_string: str,
@@ -227,18 +223,18 @@ class JobQ:
         """Empties the queue."""
         await self._client.clear()
 
-    async def get_result(self, session: str, timeout: Optional[timedelta] = None) -> Response:
+    async def get_result(self, session: str, timeout: timedelta | None = None) -> Response:
         """Retrieves the result of a task from the queue."""
         return await self._client.get_result(session, timeout)
 
     async def push(
         self,
-        kwargs: Union[Dict[str, Any], str],
+        kwargs: dict[str, Any] | str,
         *,
         num_retries: int = 5,
         reply_requested: bool = False,
-        id: Optional[str] = None,
-        worker_interface: Optional[JobQBackendWorker] = None,
+        id: str | None = None,
+        worker_interface: JobQBackendWorker | None = None,
     ) -> JobQFuture:
         """Pushes a command to a queue.
 
@@ -253,11 +249,11 @@ class JobQ:
         if isinstance(kwargs, str):
             kwargs = {"cmd": kwargs}
 
-        task_kwargs: Dict[str, Any] = dict(
-            kwargs=kwargs,
-            num_retries=num_retries,
-            reply_requested=reply_requested,
-        )
+        task_kwargs: dict[str, Any] = {
+            "kwargs": kwargs,
+            "num_retries": num_retries,
+            "reply_requested": reply_requested,
+        }
         if id is not None:
             task_kwargs["id"] = id
         task = Task(**task_kwargs)
@@ -275,15 +271,13 @@ class JobQ:
 
     async def pull_and_execute(
         self,
-        command_callback: Union[
-            Callable[..., Awaitable[CallbackReturnType]],
-            Callable[..., CallbackReturnType],
-        ],
+        command_callback: Callable[..., Awaitable[CallbackReturnType]]
+        | Callable[..., CallbackReturnType],
         *,
         visibility_timeout: timedelta = timedelta(minutes=10),
         with_heartbeat: bool = False,
-        worker_id: Optional[str] = None,
-        worker_interface: Optional[JobQBackendWorker] = None,
+        worker_id: str | None = None,
+        worker_interface: JobQBackendWorker | None = None,
     ) -> bool:
         """Gets one task from the queue (first pushed, first pulled), verifies the signature, and executes the command.
 
@@ -322,7 +316,7 @@ class JobQ:
             )
             start_time = time.time()
             exc = None
-            ret: Optional[CallbackReturnType] = None
+            ret: CallbackReturnType | None = None
             lock_lost = False
             try:
                 if signature(command_callback).parameters.get("_job_id") is not None:
@@ -333,7 +327,7 @@ class JobQ:
                     callback_task = asyncio.ensure_future(command_callback(**kwargs))  # type: ignore
                     lock_lost_task = asyncio.ensure_future(envelope.lock_lost_event.wait())
                     try:
-                        done, pending = await asyncio.wait(
+                        done, _pending = await asyncio.wait(
                             [callback_task, lock_lost_task],
                             return_when=asyncio.FIRST_COMPLETED,
                         )
@@ -429,49 +423,48 @@ class JobQ:
                 except Exception as e:
                     LOG.warning("Failed to delete message %s: %s", envelope.id, e)
                 return True
-            else:
-                # get our caching log handler
-                log_handler = next(
-                    (h for h in logging.getLogger().handlers if hasattr(h, "get_log_cache")), None
-                )
-                log = None
-                if log_handler:
-                    log = "\n".join(log_handler.get_log_cache(task.id))  # type: ignore
-                    log = log[-100 * 256 :]  # truncate to equivalent of 100 lines of 256 chars
+            # get our caching log handler
+            log_handler = next(
+                (h for h in logging.getLogger().handlers if hasattr(h, "get_log_cache")), None
+            )
+            log = None
+            if log_handler:
+                log = "\n".join(log_handler.get_log_cache(task.id))
+                log = log[-100 * 256 :]  # truncate to equivalent of 100 lines of 256 chars
 
-                LOG.exception(
-                    f"Failure for task {task.id}.",
-                    exc_info=exc,
-                    extra={
-                        "duration_s": duration,
-                        "task_id": task.id,
-                        "event": "task_failure",
-                        "log": log,
-                    },
-                )
+            LOG.exception(
+                f"Failure for task {task.id}.",
+                exc_info=exc,
+                extra={
+                    "duration_s": duration,
+                    "task_id": task.id,
+                    "event": "task_failure",
+                    "log": log,
+                },
+            )
 
-                if task.num_retries <= 0:
-                    LOG.error(
-                        f"Out of retries for task {task.id}. Giving up.",
-                        extra={
-                            "task_id": task.id,
-                            "event": "task_give_up",
-                        },
-                    )
-                    if task.reply_requested:
-                        await envelope.reply(Response(is_success=False, body=str(exc)))
-                    await envelope.delete(success=False, error=str(exc))
-                    return False
-
-                LOG.info(
-                    f"Re-queued task {task.id} with {task.num_retries} retries left.",
+            if task.num_retries <= 0:
+                LOG.error(
+                    f"Out of retries for task {task.id}. Giving up.",
                     extra={
                         "task_id": task.id,
-                        "event": "task_retry",
-                        "num_retries": task.num_retries - 1,
+                        "event": "task_give_up",
                     },
                 )
-                task = replace(task, num_retries=task.num_retries - 1)
-                # return the item back to the queue
-                await envelope.replace(task)
+                if task.reply_requested:
+                    await envelope.reply(Response(is_success=False, body=str(exc)))
+                await envelope.delete(success=False, error=str(exc))
                 return False
+
+            LOG.info(
+                f"Re-queued task {task.id} with {task.num_retries} retries left.",
+                extra={
+                    "task_id": task.id,
+                    "event": "task_retry",
+                    "num_retries": task.num_retries - 1,
+                },
+            )
+            task = replace(task, num_retries=task.num_retries - 1)
+            # return the item back to the queue
+            await envelope.replace(task)
+            return False

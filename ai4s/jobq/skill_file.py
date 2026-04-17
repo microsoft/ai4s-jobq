@@ -40,7 +40,7 @@ def _format_param(param):
         if param.required:
             parts.append(" **(required)**")
         return "".join(parts)
-    elif isinstance(param, click.Argument):
+    if isinstance(param, click.Argument):
         name = param.human_readable_name
         parts = [f"  - `{name}`"]
         if param.required:
@@ -154,8 +154,7 @@ def _generate_skill_md(cli_group):
         if formatted_params:
             lines.append("**Parameters:**")
             lines.append("")
-            for formatted in formatted_params:
-                lines.append(formatted)
+            lines.extend(formatted_params)
             lines.append("")
 
         # Usage examples
@@ -164,8 +163,7 @@ def _generate_skill_md(cli_group):
             lines.append("**Examples:**")
             lines.append("")
             lines.append("```")
-            for ex in examples:
-                lines.append(ex)
+            lines.extend(examples)
             lines.append("```")
             lines.append("")
 
@@ -179,7 +177,6 @@ DISABLED_STAMP = os.path.join(SKILL_DIR, ".disabled")
 @click.group("copilot-skill")
 def skill_file_cmd():
     """Manage the GitHub Copilot skill for the ai4s-jobq CLI."""
-    pass
 
 
 @skill_file_cmd.command("install")

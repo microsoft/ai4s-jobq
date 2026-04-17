@@ -5,13 +5,13 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from hashlib import md5
-from typing import Any, Dict, Optional
+from typing import Any
 
 if os.getenv("JOBQ_USE_MONTY_JSON", "").lower() in ("1", "true", "yes"):
-    from monty.json import MontyDecoder, MontyEncoder  # type: ignore
+    from monty.json import MontyDecoder, MontyEncoder
 
-    JSON_ENCODER = MontyEncoder  # type: ignore
-    JSON_DECODER = MontyDecoder  # type: ignore
+    JSON_ENCODER = MontyEncoder
+    JSON_DECODER = MontyDecoder
 else:
     JSON_ENCODER = json.JSONEncoder
     JSON_DECODER = json.JSONDecoder
@@ -24,16 +24,12 @@ JOBQ_DETERMINISTIC_IDS = os.getenv("JOBQ_DETERMINISTIC_IDS", "true").lower() in 
 )
 
 
-class EmptyQueue(Exception):
+class EmptyQueue(Exception):  # noqa: N818 — public API name
     """Raised when a queue is empty."""
 
-    pass
 
-
-class WorkerCanceled(Exception):
+class WorkerCanceled(Exception):  # noqa: N818 — public API name
     """Raised when a worker is canceled."""
-
-    pass
 
 
 @dataclass
@@ -59,11 +55,11 @@ class Response:
 
 @dataclass(frozen=True)
 class Task:
-    kwargs: Dict[str, Any]
+    kwargs: dict[str, Any]
     num_retries: int
-    error: Optional[str] = None
+    error: str | None = None
     reply_requested: bool = False
-    id: Optional[str] = field(
+    id: str | None = field(
         default_factory=lambda: uuid.uuid4().hex if not JOBQ_DETERMINISTIC_IDS else None
     )
 
@@ -96,12 +92,11 @@ class Task:
                 num_retries=data["num_retries"],
                 reply_requested=data["reply_requested"],
             )
-        elif data["version"] == 0:
+        if data["version"] == 0:
             return Task(
                 id=data["id"],
                 kwargs=json.loads(data["kwargs"], cls=JSON_DECODER),
                 num_retries=data["num_retries"],
                 reply_requested=False,
             )
-        else:
-            raise ValueError("Unsupported Task version {}".format(data["version"]))
+        raise ValueError("Unsupported Task version {}".format(data["version"]))

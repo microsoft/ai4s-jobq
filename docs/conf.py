@@ -7,7 +7,6 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 import os
 import sys
-from typing import List
 
 # Ensure local extensions (e.g. md_compat) can be imported
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -42,7 +41,7 @@ if os.environ.get("SPHINX_MARKDOWN_BUILDER") == "1":
     extensions.append("md_compat")
 
 templates_path = ["_templates"]
-exclude_patterns: List[str] = []
+exclude_patterns: list[str] = []
 html_favicon = "_static/favicon.png"
 
 source_suffix = {

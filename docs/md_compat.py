@@ -4,8 +4,10 @@ Used when building markdown docs (SPHINX_MARKDOWN_BUILDER=1) so that
 directives like ``.. prompt::`` produce clean markdown instead of raw HTML.
 """
 
-from docutils import nodes  # type: ignore[import]
-from docutils.parsers.rst import Directive  # type: ignore[import]
+from typing import ClassVar
+
+from docutils import nodes  # type: ignore[import-untyped]
+from docutils.parsers.rst import Directive  # type: ignore[import-untyped]
 
 
 class MarkdownPrompt(Directive):
@@ -13,7 +15,7 @@ class MarkdownPrompt(Directive):
 
     optional_arguments = 3  # e.g. bash $ auto
     has_content = True
-    option_spec = {"substitutions": lambda x: x}
+    option_spec: ClassVar[dict] = {"substitutions": lambda x: x}
 
     def run(self):
         code = "\n".join(self.content)

@@ -29,7 +29,7 @@ def register_callbacks(app):
             )
         except Exception as e:
             LOG.error(f"Error parsing dates: {e}")
-            raise PreventUpdate
+            raise PreventUpdate from e
 
         end = datetime.now(timezone.utc)
 
@@ -65,7 +65,7 @@ def register_callbacks(app):
                 "xanchor": "center",
                 "yanchor": "top",
             },
-            margin=dict(t=50),  # Adjusted top margin to balance title placement
+            margin={"t": 50},  # Adjusted top margin to balance title placement
             showlegend=False,
         )
         return fig

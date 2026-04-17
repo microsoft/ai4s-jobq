@@ -14,14 +14,8 @@ from tempfile import NamedTemporaryFile
 from typing import (
     Any,
     AsyncGenerator,
-    Dict,
     Iterable,
-    List,
-    Optional,
-    Tuple,
-    Type,
     TypeVar,
-    Union,
 )
 
 import asyncclick as click
@@ -35,7 +29,7 @@ from ai4s.jobq.logging_utils import JobQRichHandler, setup_logging
 from ai4s.jobq.orchestration import WorkSpecification, batch_enqueue, get_results
 from ai4s.jobq.orchestration.manager import launch_workers
 from ai4s.jobq.skill_file import skill_file_cmd
-from ai4s.jobq.work import DefaultSeed, ShellCommandProcessor
+from ai4s.jobq.work import DefaultSeed, Processor, ShellCommandProcessor
 
 LOG = logging.getLogger("ai4s.jobq")
 TRACK_LOG = logging.getLogger("ai4s.jobq.track")
@@ -87,10 +81,10 @@ class JobQGroup(click.Group):
 class BackendSpecParam(click.ParamType):
     def convert(
         self,
-        value: Optional[Union[str, BackendSpec]],
-        param: Optional[click.Parameter],
-        ctx: Optional[click.Context],
-    ) -> Optional[BackendSpec]:
+        value: str | BackendSpec | None,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> BackendSpec | None:
         if value is None or value == "__none__":
             return None
         if isinstance(value, BackendSpec):
@@ -113,10 +107,10 @@ class EnvVar(click.ParamType):
 
     def convert(
         self,
-        value: Optional[str],
-        param: Optional[click.Parameter],
-        ctx: Optional[click.Context],
-    ) -> Optional[Tuple[str, str]]:
+        value: str | None,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> tuple[str, str] | None:
         if value is None:
             return None
         try:
@@ -136,10 +130,10 @@ class DurationParam(click.ParamType):
 
     def convert(
         self,
-        value: Optional[Union[timedelta, str]],
-        param: Optional[click.Parameter],
-        ctx: Optional[click.Context],
-    ) -> Optional[timedelta]:
+        value: timedelta | str | None,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> timedelta | None:
         if value is None:
             return None
 
@@ -151,13 +145,13 @@ class DurationParam(click.ParamType):
             value = value[:-1]
             if last == "s":
                 return timedelta(seconds=int(value))
-            elif last == "m":
+            if last == "m":
                 return timedelta(minutes=int(value))
-            elif last == "h":
+            if last == "h":
                 return timedelta(hours=int(value))
-            elif last == "d":
+            if last == "d":
                 return timedelta(days=int(value))
-            elif last == "w":
+            if last == "w":
                 return timedelta(weeks=int(value))
         return self.fail(f"Expected format: <number>[smhdw], got {value!r}", param, ctx)
 
@@ -167,49 +161,38 @@ class ProcessorParam(click.ParamType):
         return "[shell | map-in-config | <module>.<class>]"
 
     @staticmethod
-    def get_class_from_string(qualified_name: str):
-        # Split the fully qualified name into module and class parts
+    def get_class_from_string(qualified_name: str) -> type[Processor]:
         parts = qualified_name.split(".")
         module_name = ".".join(parts[:-1])
         class_name = parts[-1]
-
-        # Import the module dynamically
         module = importlib.import_module(module_name)
-
-        # Get the class from the module
         cls = getattr(module, class_name)
-        return cls
+        return cls  # type: ignore[no-any-return]  # dynamic class loading
 
     def convert(
         self,
-        value: Optional[str],
-        param: Optional[click.Parameter],
-        ctx: Optional[click.Context],
-    ) -> Optional[Type[ShellCommandProcessor]]:
+        value: str | None,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> type[Processor] | None:
         if value is None:
             return None
         if value == "shell":
             return ShellCommandProcessor
-        elif value == "map-in-config":
+        if value == "map-in-config":
             from ai4s.jobq.ext.map_in_config import MapInConfigProcessor
 
-            return MapInConfigProcessor  # type: ignore
-        else:
-            return self.get_class_from_string(value)
-        return self.fail(
-            f"Expected one of 'shell' or 'map-in-config', got {value!r}",
-            param,
-            ctx,
-        )
+            return MapInConfigProcessor
+        return self.get_class_from_string(value)
 
 
 @dataclass
 class QueueConfig:
-    backend_spec: Optional[BackendSpec] = None
-    conn_str: Optional[str] = None
-    credential: Optional[Union[str, AsyncTokenCredential]] = None
-    log_handler: Optional[JobQRichHandler] = None
-    duplicate_detection_window: Optional[timedelta] = None
+    backend_spec: BackendSpec | None = None
+    conn_str: str | None = None
+    credential: str | AsyncTokenCredential | None = None
+    log_handler: JobQRichHandler | None = None
+    duplicate_detection_window: timedelta | None = None
 
     @asynccontextmanager
     async def get(
@@ -231,7 +214,7 @@ class QueueConfig:
                 )
             else:
                 if isinstance(self.backend_spec, StorageQueueSpec):
-                    credential: Optional[Union[str, AsyncTokenCredential]] = self.credential
+                    credential: str | AsyncTokenCredential | None = self.credential
                     if not credential and not require_account_key:
                         try:
                             credential = await stack.enter_async_context(get_token_credential())
@@ -246,14 +229,14 @@ class QueueConfig:
                         JobQ.from_storage_queue(
                             self.backend_spec.name,
                             storage_account=self.backend_spec.storage_account,
-                            credential=credential,  # type: ignore
+                            credential=credential,
                             exist_ok=exist_ok,
                         )
                     )
                 elif isinstance(self.backend_spec, ServiceBusSpec):
                     credential = self.credential
                     if not self.credential:
-                        credential = await stack.enter_async_context(get_token_credential())  # type: ignore
+                        credential = await stack.enter_async_context(get_token_credential())
                     queue = await stack.enter_async_context(
                         JobQ.from_service_bus(
                             self.backend_spec.name,
@@ -288,7 +271,7 @@ class QueueConfig:
 @click.pass_context
 async def main(
     ctx: click.Context,
-    backend_spec: Optional[BackendSpec],
+    backend_spec: BackendSpec | None,
     verbose: int,
     quiet: int,
     conn_str: str,
@@ -359,11 +342,11 @@ async def push(
     ctx: click.Context,
     command: Iterable[str],
     num_retries: int,
-    bg_dirsync_to: Optional[str],
-    env_vars: List[Tuple[str, str]],
+    bg_dirsync_to: str | None,
+    env_vars: list[tuple[str, str]],
     wait: bool,
     num_enqueue_workers: int,
-    dedup_window: Optional[timedelta],
+    dedup_window: timedelta | None,
 ) -> None:
     """
     Enqueue a new job to the job queue.
@@ -379,10 +362,10 @@ async def push(
     if dedup_window is not None:
         ctx.obj.duplicate_detection_window = dedup_window
 
-    class IteratorWorkSpec(WorkSpecification[Dict[str, Any], DefaultSeed]):
+    class IteratorWorkSpec(WorkSpecification[dict[str, Any], DefaultSeed]):
         async def list_tasks(
             self, seed: DefaultSeed, force: bool = False
-        ) -> AsyncGenerator[Dict[str, Any], None]:
+        ) -> AsyncGenerator[dict[str, Any], None]:
             for cmd in command:
                 if cmd.startswith("{"):
                     job_spec = json.loads(cmd)
@@ -390,7 +373,7 @@ async def push(
                     job_spec.setdefault("bg_dirsync_to", bg_dirsync_to)
                     yield job_spec
                 else:
-                    yield dict(cmd=cmd, bg_dirsync_to=bg_dirsync_to, env=env)
+                    yield {"cmd": cmd, "bg_dirsync_to": bg_dirsync_to, "env": env}
 
     async with ctx.obj.get(exist_ok=True) as queue:
         futures = await batch_enqueue(
@@ -429,7 +412,7 @@ async def peek(ctx: click.Context, n: int, as_json: bool) -> None:
                 print(res)
     except EmptyQueue as e:
         LOG.error(str(e))
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 @main.command("sas")
@@ -457,7 +440,7 @@ async def sas(ctx: click.Context, expiry: timedelta) -> None:
 )
 @click.argument("amlt-args", nargs=-1, type=click.UNPROCESSED, metavar="AMLT_ARGS")
 @click.pass_context
-async def amlt_worker(ctx: click.Context, time_limit: timedelta, amlt_args: List[str]) -> None:
+async def amlt_worker(ctx: click.Context, time_limit: timedelta, amlt_args: list[str]) -> None:
     """Launch Amulet with JOBQ_STORAGE, JOBQ_QUEUE, and JOBQ_TIME_LIMIT set, so they can be referenced in the yaml file.
 
     Usage:
@@ -489,14 +472,14 @@ async def amlt_worker(ctx: click.Context, time_limit: timedelta, amlt_args: List
         for i in range(len(amlt_args)):
             if amlt_args[i].endswith(".yaml") or amlt_args[i].endswith(".yml"):
                 tmpfile = stack.enter_context(
-                    NamedTemporaryFile(
+                    NamedTemporaryFile(  # noqa: SIM115 — managed by ExitStack
                         suffix=".yaml",
                         delete=False,
                         dir=os.path.dirname(amlt_args[i]),
                         mode="w",
                     )
                 )
-                with open(amlt_args[i], "r") as f:
+                with open(amlt_args[i]) as f:  # noqa: ASYNC230 — sync IO in async CLI handler
                     config_dct = yaml.safe_load(f)
                     if "environment" not in config_dct:
                         # not an amlt yaml
@@ -542,24 +525,23 @@ async def amlt_worker(ctx: click.Context, time_limit: timedelta, amlt_args: List
 async def pull(
     ctx: click.Context,
     visibility_timeout: timedelta,
-    proc_cls: Type[ShellCommandProcessor],
+    proc_cls: type[Processor],
 ) -> None:
     """Pull and execute a job"""
     # hours are set so they can just be used with user identity.
     # use worker for more fine-grained control.
-    async with ctx.obj.get(exist_ok=True) as queue:
-        async with proc_cls() as proc:
-            async with queue.get_worker_interface() as worker_interface:
-                try:
-                    await queue.pull_and_execute(
-                        proc,
-                        visibility_timeout=visibility_timeout,
-                        worker_interface=worker_interface,
-                    )
-                except WorkerCanceled:
-                    LOG.info("Worker canceled.")
-                except EmptyQueue:
-                    LOG.error("Queue is empty.")
+    async with ctx.obj.get(exist_ok=True) as queue, proc_cls() as proc:  # noqa: SIM117
+        async with queue.get_worker_interface() as worker_interface:
+            try:
+                await queue.pull_and_execute(
+                    proc,
+                    visibility_timeout=visibility_timeout,
+                    worker_interface=worker_interface,
+                )
+            except WorkerCanceled:
+                LOG.info("Worker canceled.")
+            except EmptyQueue:
+                LOG.error("Queue is empty.")
 
 
 @main.command("worker")
@@ -622,7 +604,7 @@ async def workers(
     time_limit: timedelta,
     max_consecutive_failures: int,
     heartbeat: bool,
-    proc_cls: Type[ShellCommandProcessor],
+    proc_cls: type[Processor],
     emulate_tty: bool = False,
 ) -> None:
     """Like pull, but start multiple async workers."""
@@ -645,12 +627,12 @@ async def workers(
             ctx.obj.get(exist_ok=True, require_account_key=False)
         )
 
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         if emulate_tty:
             # Emulate a TTY for the worker, forces line buffering (useful if logs get lost when preempted).
             kwargs["emulate_tty"] = True
 
-        async with proc_cls(num_workers=num_workers, **kwargs) as proc:
+        async with proc_cls(num_workers=num_workers, **kwargs) as proc:  # type: ignore[call-arg]
             await launch_workers(
                 queue,
                 processor=proc,
@@ -721,7 +703,7 @@ def _missing_track_deps():
 def _set_subscription_id(
     ctx: click.Context,
     param: click.Parameter,
-    value: Optional[str],
+    value: str | None,
 ) -> None:
     if value is not None:
         os.environ["JOBQ_AZURE_SUBSCRIPTION_ID"] = value
@@ -799,7 +781,7 @@ def _install_copilot_skill():  # pragma: no cover
                 existing = f.read().strip()
             if existing == __version__:
                 return
-        except Exception:
+        except Exception:  # noqa: S110 — best-effort
             pass
     try:
         import shutil
@@ -816,7 +798,7 @@ def _install_copilot_skill():  # pragma: no cover
                 "Auto-installed Copilot skill. "
                 "Run 'ai4s-jobq copilot-skill clear' to disable auto-installation."
             )
-    except Exception:
+    except Exception:  # noqa: S110 — best-effort
         pass
 
 

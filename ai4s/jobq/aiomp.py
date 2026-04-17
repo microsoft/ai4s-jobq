@@ -1,14 +1,16 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 import asyncio
-import queue
 import typing as ty
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from multiprocessing import Manager, cpu_count
 
+if ty.TYPE_CHECKING:
+    import queue
 
-def AsyncProcessQueue(maxsize: int = 0) -> "_ProcQueue":
+
+def AsyncProcessQueue(maxsize: int = 0) -> "_ProcQueue":  # noqa: N802 — public API name
     m = Manager()
     q = m.Queue(maxsize=maxsize)
     return _ProcQueue(q)
@@ -17,7 +19,7 @@ def AsyncProcessQueue(maxsize: int = 0) -> "_ProcQueue":
 class _ProcQueue:
     def __init__(self, q: "queue.Queue[ty.Any]"):
         self._queue = q
-        self._real_executor: ty.Optional[ThreadPoolExecutor] = None
+        self._real_executor: ThreadPoolExecutor | None = None
         self._cancelled_join = False
 
     @property
@@ -26,7 +28,7 @@ class _ProcQueue:
             self._real_executor = ThreadPoolExecutor(max_workers=cpu_count())
         return self._real_executor
 
-    def __getstate__(self) -> ty.Dict[str, ty.Any]:
+    def __getstate__(self) -> dict[str, ty.Any]:
         self_dict = self.__dict__
         self_dict["_real_executor"] = None
         return self_dict
@@ -43,16 +45,13 @@ class _ProcQueue:
             "close",
         ]:
             return getattr(self._queue, name)
-        else:
-            raise AttributeError(
-                "'%s' object has no attribute '%s'" % (self.__class__.__name__, name)
-            )
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     async def coro_put(self, item: ty.Any) -> ty.Any:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._executor, self.put, item)
 
-    async def coro_get(self, timeout: ty.Optional[int]) -> ty.Any:
+    async def coro_get(self, timeout: int | None) -> ty.Any:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._executor, partial(self.get, timeout=timeout))
 

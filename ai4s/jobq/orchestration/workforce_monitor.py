@@ -6,7 +6,7 @@ import logging
 import os
 import signal
 import typing as ty
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 
 from appdirs import user_cache_dir
 from azure.servicebus.aio import ServiceBusClient
@@ -102,7 +102,5 @@ async def workforce_monitor(worker_id: str, queue_name: str) -> ty.AsyncGenerato
     finally:
         LOG.info("Stopping workforce monitor")
         task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass

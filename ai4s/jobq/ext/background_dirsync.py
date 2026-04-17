@@ -6,16 +6,16 @@ import multiprocessing as mp
 import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import ContextDecorator
+from contextlib import ContextDecorator, suppress
 from fnmatch import fnmatch
 from multiprocessing import process, queues, synchronize
 from threading import Thread
-from typing import Any, Literal, Optional, Sequence, Set
+from typing import Any, Literal, Sequence
 
 FLUSH_FILENAME = ".amlt_flush_upload"
 
 
-class DummyException(Exception):
+class DummyException(Exception):  # noqa: N818 — intentional non-Error suffix
     pass
 
 
@@ -31,8 +31,8 @@ class Syncer:
         dst: str,
         logger: logging.Logger,
         n_threads: int = 10,
-        include: Optional[Sequence[str]] = None,
-        exclude: Optional[Sequence[str]] = None,
+        include: Sequence[str] | None = None,
+        exclude: Sequence[str] | None = None,
         delete_after_copy: bool = False,
         remove_if_not_in_source: bool = True,
     ) -> None:
@@ -41,7 +41,7 @@ class Syncer:
         self.n_threads = n_threads
         self.include = include or []
         self.exclude = exclude or []
-        self.pre_existing_files_on_dst: Optional[Set[str]] = None
+        self.pre_existing_files_on_dst: set[str] | None = None
         self.delete_after_copy = delete_after_copy
         self.remove_if_not_in_source = remove_if_not_in_source
         self._logger = logger
@@ -100,10 +100,8 @@ class Syncer:
             except OSError:
                 pass
         elif os.path.isdir(dst):
-            try:
+            with suppress(shutil.Error):
                 shutil.rmtree(dst, True)
-            except shutil.Error:
-                pass
 
     def _relative_to_src(self, dirpath: str, fn: str) -> str:
         return os.path.relpath(os.path.join(dirpath, fn), self.src)
@@ -190,8 +188,8 @@ def _run(
     n_sync_threads: int,
     delete_after_copy: bool = False,
     remove_if_not_in_source: bool = True,
-    include: Optional[Sequence[str]] = None,
-    exclude: Optional[Sequence[str]] = None,
+    include: Sequence[str] | None = None,
+    exclude: Sequence[str] | None = None,
 ) -> None:
     """
     subprocess that runs Syncer() in a loop and calls flush/shuts down depending on signals.
@@ -240,11 +238,11 @@ class BackgroundDirSync(ContextDecorator):
         dst: str,
         freq: int = 5,
         n_threads: int = 5,
-        include: Optional[Sequence[str]] = None,
-        exclude: Optional[Sequence[str]] = None,
+        include: Sequence[str] | None = None,
+        exclude: Sequence[str] | None = None,
         delete_after_copy: bool = False,
         remove_if_not_in_source: bool = True,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self.src = src
         self.dst = dst
@@ -252,7 +250,7 @@ class BackgroundDirSync(ContextDecorator):
         self.n_sync_threads = n_threads
         self.delete_after_copy = delete_after_copy
         self.remove_if_not_in_source = remove_if_not_in_source
-        self.sync_process: Optional[process.BaseProcess] = None
+        self.sync_process: process.BaseProcess | None = None
         self._logger = logger or logging.getLogger("background_dirsync")
         self.include = (
             os.environ.get("AMLT_DIRSYNC_INCLUDE", "").split() if include is None else include

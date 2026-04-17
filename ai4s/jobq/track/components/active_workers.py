@@ -50,7 +50,7 @@ def layout(default_queue=None):
                     ),
                     dcc.Dropdown(
                         id="queue-dropdown",
-                        options=queue_options or [],
+                        options=queue_options or [],  # type: ignore[arg-type]
                         value=default_value,
                         placeholder="Select a queue",
                         style={"width": "400px"},
@@ -150,7 +150,7 @@ def layout(default_queue=None):
             ),
             html.Div(
                 [
-                    dash_table.DataTable(
+                    dash_table.DataTable(  # type: ignore[attr-defined]
                         id="errors-table",
                         style_table={"width": "100%", "overflowX": "hidden"},
                         style_cell_conditional=[
@@ -213,7 +213,7 @@ def layout(default_queue=None):
                         ),
                         id="modal-body-div",
                         # text selection pointer
-                        style=dict(cursor="text", width="100%"),
+                        style={"cursor": "text", "width": "100%"},
                     ),
                     dbc.ModalFooter(
                         [
@@ -230,7 +230,7 @@ def layout(default_queue=None):
                 backdrop="true",
                 scrollable=True,
                 size="lg",
-                style=dict(zIndex=1050, maxWidth="800px", width="90%"),
+                style={"zIndex": 1050, "maxWidth": "800px", "width": "90%"},
             ),
             dcc.Interval(id="interval", interval=60 * 1000, n_intervals=0),
             dcc.Interval(id="resize-interval", interval=500, n_intervals=0),
@@ -261,7 +261,7 @@ def register_callbacks(app):
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
             LOG.error(f"Error parsing dates: {e}")
-            raise PreventUpdate
+            raise PreventUpdate from e
 
         end = datetime.utcnow()
 
@@ -294,7 +294,7 @@ def register_callbacks(app):
                 "xanchor": "center",
                 "yanchor": "top",
             },
-            margin=dict(t=50),  # Adjusted top margin to balance title placement
+            margin={"t": 50},  # Adjusted top margin to balance title placement
             showlegend=False,
         )
 

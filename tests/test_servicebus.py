@@ -44,7 +44,7 @@ async def test_servicebus_stress(sb_namespace, sb_queue):
 
     class Work(WorkSpecification, Processor):
         def __init__(self):
-            self.done = Counter()
+            self.done: Counter = Counter()
             super().__init__()
 
         async def task_seeds(self):
@@ -61,15 +61,17 @@ async def test_servicebus_stress(sb_namespace, sb_queue):
             self.done[cmd] += 1
             return f"processed {cmd}"
 
-    async with Work() as work:
-        async with get_token_credential() as credential:
-            async with JobQ.from_service_bus(
-                sb_queue, fqns=f"{sb_namespace}.servicebus.windows.net", credential=credential
-            ) as jobq:
-                await jobq.clear()
+    async with (
+        Work() as work,
+        get_token_credential() as credential,
+        JobQ.from_service_bus(
+            sb_queue, fqns=f"{sb_namespace}.servicebus.windows.net", credential=credential
+        ) as jobq,
+    ):
+        await jobq.clear()
 
-                await batch_enqueue(jobq, work)
-                await launch_workers(jobq, work, num_workers=20)
+        await batch_enqueue(jobq, work)
+        await launch_workers(jobq, work, num_workers=20)
 
     for v in work.done.values():
         assert v == 1
@@ -110,14 +112,16 @@ async def test_servicebus_stress_mp(sb_namespace, sb_queue):
                 yield cmd
                 expected.add(cmd)
 
-    async with Work() as work:
-        async with get_token_credential() as credential:
-            async with JobQ.from_service_bus(
-                sb_queue, fqns=f"{sb_namespace}.servicebus.windows.net", credential=credential
-            ) as jobq:
-                await jobq.clear()
+    async with (
+        Work() as work,
+        get_token_credential() as credential,
+        JobQ.from_service_bus(
+            sb_queue, fqns=f"{sb_namespace}.servicebus.windows.net", credential=credential
+        ) as jobq,
+    ):
+        await jobq.clear()
 
-                await batch_enqueue(jobq, work)
+        await batch_enqueue(jobq, work)
 
     with ProcessPoolExecutor(max_workers=n_seeds) as executor:
         executable = shutil.which("ai4s-jobq")
@@ -149,7 +153,7 @@ async def test_servicebus_retry(sb_namespace, sb_queue):
 
     class Work(WorkSpecification, Processor):
         def __init__(self):
-            self.done = Counter()
+            self.done: Counter = Counter()
             super().__init__()
 
         async def task_seeds(self):
@@ -168,15 +172,17 @@ async def test_servicebus_retry(sb_namespace, sb_queue):
                 raise Exception("Simulated failure")
             return f"processed {cmd}"
 
-    async with Work() as work:
-        async with get_token_credential() as credential:
-            async with JobQ.from_service_bus(
-                sb_queue, fqns=f"{sb_namespace}.servicebus.windows.net", credential=credential
-            ) as jobq:
-                await jobq.clear()
+    async with (
+        Work() as work,
+        get_token_credential() as credential,
+        JobQ.from_service_bus(
+            sb_queue, fqns=f"{sb_namespace}.servicebus.windows.net", credential=credential
+        ) as jobq,
+    ):
+        await jobq.clear()
 
-                await batch_enqueue(jobq, work, num_retries=1)
-                await launch_workers(jobq, work, num_workers=20, max_consecutive_failures=10000)
+        await batch_enqueue(jobq, work, num_retries=1)
+        await launch_workers(jobq, work, num_workers=20, max_consecutive_failures=10000)
 
     for v in work.done.values():
         assert v == 2

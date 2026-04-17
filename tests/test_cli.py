@@ -7,7 +7,6 @@ import signal
 import subprocess
 import sys
 from datetime import datetime
-from typing import List, Optional
 from uuid import uuid4
 
 import click
@@ -38,8 +37,8 @@ async def queue_name():
 async def cli_cmd(
     *args: str,
     queue_name: str = QUEUE,
-    queue_spec: Optional[List[str]] = None,
-    options: Optional[List[str]] = None,
+    queue_spec: list[str] | None = None,
+    options: list[str] | None = None,
     exit_code=0,
 ) -> str:
     options = options or []
@@ -51,7 +50,7 @@ async def cli_cmd(
     else:
         cli.main((*options, *queue_spec, *args), standalone_mode=False, catch_exceptions=False)
     assert result.exit_code == exit_code, result.output
-    return result.output
+    return result.output  # type: ignore[no-any-return]
 
 
 @pytest.fixture(autouse=False)
@@ -207,7 +206,7 @@ environment:
             nonlocal config_dct, env
             augmented_config = cmd[2]
             env = kwargs.get("env")
-            with open(augmented_config, "r") as f:
+            with open(augmented_config) as f:
                 config_dct = yaml.safe_load(f)
 
         def wait(self):
@@ -314,7 +313,7 @@ async def test_signal_handling(mocker, tmp_path, queue_name) -> None:
     Check that we can cleanly abort workers when the top level process receives a SIGTERM.
     """
 
-    q = dict(queue_name=queue_name)
+    q = {"queue_name": queue_name}
 
     # insert useless quotes in the print string so that we can check whether it's actually
     # executed, as opposed the command being printed.
@@ -364,7 +363,7 @@ async def test_signal_handling(mocker, tmp_path, queue_name) -> None:
 
     n = 0
     async with QueueClient.from_connection_string(CONNSTR, queue_name) as queue:
-        async for msg in queue.receive_messages(timeout=1):
+        async for _msg in queue.receive_messages(timeout=1):
             n += 1
     assert n == 2
 
@@ -375,7 +374,7 @@ async def test_signal_handling_resume(mocker, tmp_path, queue_name) -> None:
     Check that workers receives SIGTERM but then pick up next task when not preempted.
     """
 
-    q = dict(queue_name=queue_name)
+    q = {"queue_name": queue_name}
 
     mocker.patch.dict(
         os.environ,
@@ -431,7 +430,7 @@ async def test_signal_handling_resume(mocker, tmp_path, queue_name) -> None:
 
     n = 0
     async with QueueClient.from_connection_string(CONNSTR, queue_name) as queue:
-        async for msg in queue.receive_messages(timeout=1):
+        async for _msg in queue.receive_messages(timeout=1):
             n += 1
     assert n == 0
 
@@ -463,7 +462,7 @@ class DummyProcessor(AbstractAsyncContextManager):
     pass
 """
     )
-    new_sys_path = [str(tmp_path)] + list(sys.path)
+    new_sys_path = [str(tmp_path), *list(sys.path)]
     mocker.patch.object(sys, "path", new_sys_path)
     push_res = await cli_cmd("push", "-c", "custom hello world", options=["-vv"])
     assert not push_res

@@ -30,11 +30,11 @@ def register_callbacks(app):
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
             LOG.error(f"Error parsing dates: {e}")
-            raise PreventUpdate
+            raise PreventUpdate from e
 
         end = datetime.utcnow()
 
-        TID = "72f988bf-86f1-41af-91ab-2d7cd011db47"
+        tid = "72f988bf-86f1-41af-91ab-2d7cd011db47"
         query = f"""
         AppExceptions
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
@@ -42,7 +42,7 @@ def register_callbacks(app):
             | where InnermostMessage has "Failure"
             | extend TaskId = tostring(Properties.task_id),
                      Duration=todecimal(Properties.duration_s),
-                     URL=strcat("https://ml.azure.com/runs/", Properties.azureml_run_id, "?tid={TID}&wsid=", "/subscriptions/", Properties.azureml_subscription_id, "/resourceGroups/", Properties.azureml_resource_group, "/workspaces/", Properties.azureml_workspace_name),
+                     URL=strcat("https://ml.azure.com/runs/", Properties.azureml_run_id, "?tid={tid}&wsid=", "/subscriptions/", Properties.azureml_subscription_id, "/resourceGroups/", Properties.azureml_resource_group, "/workspaces/", Properties.azureml_workspace_name),
                      Exception = extract(@"raise .*\\n(.*)", 1, tostring(Properties.log))
             | project TimeGenerated, TaskId, Duration, Exception, Logs=tostring(Properties.log), ExceptionType, URL
             | sort by TimeGenerated desc
@@ -88,7 +88,7 @@ def register_callbacks(app):
             {"name": "Logs", "id": "Logs"},
         ]
 
-        tooltip_data = [
+        tooltip_data: list[dict] = [
             # {"Logs": {"type": "markdown", "value": ("<pre>" + row["Logs"] + "</pre>")}} for _, row in df.iterrows()
         ]
 
@@ -121,10 +121,8 @@ def register_callbacks(app):
             if col == "Logs":
                 if data[row][col].strip():
                     return True, data[row][col], data[row][col]
-                else:
-                    return False, dash.no_update, dash.no_update
-            else:
-                return dash.no_update, dash.no_update, data[row][col]
+                return False, dash.no_update, dash.no_update
+            return dash.no_update, dash.no_update, data[row][col]
 
         return False, dash.no_update, dash.no_update
 
@@ -134,29 +132,29 @@ def register_callbacks(app):
         State("modal-body", "style"),
     )
     def toggle_wrap(wrap_enabled, current_style):
-        style = dict(
-            userSelect="text",
-            overflowX="auto",
-            padding="1rem",
-            fontFamily="monospace",
-        )
+        style = {
+            "userSelect": "text",
+            "overflowX": "auto",
+            "padding": "1rem",
+            "fontFamily": "monospace",
+        }
         if wrap_enabled:
             style.update(
-                dict(
-                    whiteSpace="pre-wrap",
-                    overflowX="visible",
-                    overflowWrap="break-word",
-                    wordBreak="break-word",
-                )
+                {
+                    "whiteSpace": "pre-wrap",
+                    "overflowX": "visible",
+                    "overflowWrap": "break-word",
+                    "wordBreak": "break-word",
+                }
             )
         else:
             style.update(
-                dict(
-                    whiteSpace="pre",
-                    overflowX="auto",
-                    overflowWrap="normal",
-                    wordBreak="normal",
-                )
+                {
+                    "whiteSpace": "pre",
+                    "overflowX": "auto",
+                    "overflowWrap": "normal",
+                    "wordBreak": "normal",
+                }
             )
         current_style.update(style)
         return current_style

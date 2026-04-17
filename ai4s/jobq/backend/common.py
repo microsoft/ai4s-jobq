@@ -46,9 +46,9 @@ class JobQBackend(ty.Protocol):
 
     async def __aexit__(
         self,
-        exc_type: ty.Optional[ty.Type[BaseException]],
-        exc: ty.Optional[BaseException],
-        tb: ty.Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
     ) -> None: ...
 
     async def push(self, task: Task) -> str: ...
@@ -67,9 +67,7 @@ class JobQBackend(ty.Protocol):
 
     async def peek(self, n: int = 1, as_json: bool = False) -> ty.Any: ...
 
-    async def get_result(
-        self, session_id: str, timeout: ty.Optional[timedelta] = None
-    ) -> Response: ...
+    async def get_result(self, session_id: str, timeout: timedelta | None = None) -> Response: ...
 
     @asynccontextmanager
     async def get_worker_interface(self, **kwargs) -> ty.AsyncGenerator[JobQBackendWorker, None]:

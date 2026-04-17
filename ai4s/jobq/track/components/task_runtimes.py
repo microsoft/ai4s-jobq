@@ -27,7 +27,7 @@ def register_callbacks(app):
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
             LOG.error(f"Error parsing dates: {e}")
-            raise PreventUpdate
+            raise PreventUpdate from e
 
         end = datetime.utcnow()
 
@@ -64,7 +64,7 @@ def register_callbacks(app):
             x="TimeGenerated",
             y="value",
             color="statistic",
-            color_discrete_map=color_map,
+            color_discrete_map=color_map,  # type: ignore[arg-type]
             labels={"TimeGenerated": "Time", "value": "Runtime (seconds)"},
             title="Task Runtimes",
             markers=True,
@@ -79,7 +79,7 @@ def register_callbacks(app):
         )
 
         for trace in fig.data:
-            if trace.name not in ("median", "mean"):
+            if trace.name not in ("median", "mean"):  # type: ignore[attr-defined]
                 trace.update(mode="lines")
 
         fig.update_layout(
@@ -89,7 +89,7 @@ def register_callbacks(app):
                 "xanchor": "center",
                 "yanchor": "top",
             },
-            margin=dict(t=50),  # Adjusted top margin to balance title placement
+            margin={"t": 50},  # Adjusted top margin to balance title placement
             showlegend=False,
         )
         return fig

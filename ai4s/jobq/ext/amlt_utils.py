@@ -2,26 +2,28 @@
 # Licensed under the MIT License.
 import os
 import shutil
-import typing as ty
 import uuid
 from datetime import datetime, timedelta
 from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING
 
 import amlt
 import amlt.api.project
 import amlt.azure_io
-import amlt.config.core
 from amlt.copy_utils import copy_code_dir
 from amlt.db.models import BlobArtifactModel
 from amlt.helpers.dirchecksum import checksum as directory_checksum
 from dateutil.tz import UTC
+
+if TYPE_CHECKING:
+    import amlt.config.core
 
 
 def upload_code(
     project_client: "amlt.api.project.ProjectClient",
     config: "amlt.config.core.AMLTConfig",
     sas_valid_days: int = 31 * 6,
-) -> ty.Optional[str]:
+) -> str | None:
     if config.code is None:
         return None
     if config.code.local_dir is None:

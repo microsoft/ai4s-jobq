@@ -22,7 +22,7 @@ pytest --run-live
 
 ## Lint & Format
 
-Pre-commit hooks run ruff (lint + format) and mypy:
+Pre-commit hooks run ruff (lint + format), mypy, and security checks:
 
 ```bash
 pre-commit run --all-files
@@ -30,10 +30,16 @@ pre-commit run --all-files
 # Or individually:
 ruff check --fix .
 ruff format .
-mypy ai4s/
+mypy ai4s/ --no-namespace-packages
 ```
 
-Ruff is configured with 100-char line length and isort via `pyproject.toml`.
+Ruff is configured with 100-char line length, 25+ rule groups (security, bugbear, naming,
+async, performance, etc.), and extensive per-file-ignores for intentional patterns.
+See `pyproject.toml` `[tool.ruff.lint]` for the full configuration.
+
+Mypy runs with `check_untyped_defs`, `warn_redundant_casts`, `warn_unused_ignores`,
+`warn_return_any`, and `no_implicit_reexport` enabled. The pre-commit hook installs
+the package itself as a dependency for full type coverage.
 
 ## Architecture
 

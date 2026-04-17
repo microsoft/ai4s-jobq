@@ -1,0 +1,16 @@
+# CODEOWNERS for ai4s-jobq
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything
+*                               @microsoft/ai4s-jobq-maintainers
+
+# Core queue implementation
+ai4s/jobq/jobq.py               @microsoft/ai4s-jobq-maintainers
+ai4s/jobq/entities.py            @microsoft/ai4s-jobq-maintainers
+ai4s/jobq/backend/               @microsoft/ai4s-jobq-maintainers
+ai4s/jobq/work.py                @microsoft/ai4s-jobq-maintainers
+
+# CI and tooling
+.github/                         @microsoft/ai4s-jobq-maintainers
+pyproject.toml                   @microsoft/ai4s-jobq-maintainers
+.pre-commit-config.yaml          @microsoft/ai4s-jobq-maintainers

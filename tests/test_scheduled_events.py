@@ -51,7 +51,7 @@ async def test_aml_preemption_signal_endpoint_canceled(mocker):
     # mock the aiohttp.ClientSession.get method
     mocker.patch(
         "ai4s.jobq.scheduled_events.aiohttp.ClientSession.get",
-        return_value=MockResponse(dict(Events=[]), 200),
+        return_value=MockResponse({"Events": []}, 200),
     )
 
     shutdown_event = asyncio.Event()
@@ -89,10 +89,10 @@ async def test_aml_preemption_signal_endpoint_canceled(mocker):
         mocker.patch(
             "ai4s.jobq.scheduled_events.aiohttp.ClientSession.get",
             side_effect=(
-                MockResponse(dict(Events=[asdict(aml_event)]), 200),
-                MockResponse(dict(Events=[]), 200),
-                MockResponse(dict(Events=[]), 200),
-                MockResponse(dict(Events=[]), 200),
+                MockResponse({"Events": [asdict(aml_event)]}, 200),
+                MockResponse({"Events": []}, 200),
+                MockResponse({"Events": []}, 200),
+                MockResponse({"Events": []}, 200),
             ),
         )
 
@@ -111,7 +111,7 @@ async def test_aml_preemption_signal_endpoint(mocker):
     # mock the aiohttp.ClientSession.get method
     mocker.patch(
         "ai4s.jobq.scheduled_events.aiohttp.ClientSession.get",
-        return_value=MockResponse(dict(Events=[]), 200),
+        return_value=MockResponse({"Events": []}, 200),
     )
 
     shutdown_event = asyncio.Event()
@@ -148,7 +148,7 @@ async def test_aml_preemption_signal_endpoint(mocker):
 
         mocker.patch(
             "ai4s.jobq.scheduled_events.aiohttp.ClientSession.get",
-            return_value=MockResponse(dict(Events=[asdict(aml_event)]), 200),
+            return_value=MockResponse({"Events": [asdict(aml_event)]}, 200),
         )
 
         await asyncio.sleep(3)
@@ -166,7 +166,7 @@ async def test_aml_preemption_signal_endpoint_crash(mocker, caplog):
     # mock the aiohttp.ClientSession.get method
     mocker.patch(
         "ai4s.jobq.scheduled_events.aiohttp.ClientSession.get",
-        return_value=MockResponse(dict(Events=[]), 200),
+        return_value=MockResponse({"Events": []}, 200),
     )
 
     shutdown_event = asyncio.Event()
@@ -178,7 +178,7 @@ async def test_aml_preemption_signal_endpoint_crash(mocker, caplog):
     ) as handler:
         mocker.patch(
             "ai4s.jobq.scheduled_events.aiohttp.ClientSession.get",
-            return_value=MockCrashResponse(dict(Events=[]), 500),
+            return_value=MockCrashResponse({"Events": []}, 500),
         )
 
         await asyncio.sleep(3)
