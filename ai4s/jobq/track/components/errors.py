@@ -34,7 +34,7 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        TID = "72f988bf-86f1-41af-91ab-2d7cd011db47"  # noqa: N806
+        tid = "72f988bf-86f1-41af-91ab-2d7cd011db47"
         query = f"""
         AppExceptions
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
@@ -42,7 +42,7 @@ def register_callbacks(app):
             | where InnermostMessage has "Failure"
             | extend TaskId = tostring(Properties.task_id),
                      Duration=todecimal(Properties.duration_s),
-                     URL=strcat("https://ml.azure.com/runs/", Properties.azureml_run_id, "?tid={TID}&wsid=", "/subscriptions/", Properties.azureml_subscription_id, "/resourceGroups/", Properties.azureml_resource_group, "/workspaces/", Properties.azureml_workspace_name),
+                     URL=strcat("https://ml.azure.com/runs/", Properties.azureml_run_id, "?tid={tid}&wsid=", "/subscriptions/", Properties.azureml_subscription_id, "/resourceGroups/", Properties.azureml_resource_group, "/workspaces/", Properties.azureml_workspace_name),
                      Exception = extract(@"raise .*\\n(.*)", 1, tostring(Properties.log))
             | project TimeGenerated, TaskId, Duration, Exception, Logs=tostring(Properties.log), ExceptionType, URL
             | sort by TimeGenerated desc

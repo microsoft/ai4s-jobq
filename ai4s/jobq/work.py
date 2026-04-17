@@ -218,7 +218,7 @@ async def run_cmd_and_log_outputs(
         ret = await process.wait()
         if terminated:
             log(logging.DEBUG, "Raising WorkerCanceled since process was terminated")
-            raise WorkerCanceled()  # noqa: RSE102
+            raise WorkerCanceled
         return ret  # noqa: B012 — return in finally is intentional
 
 
@@ -414,7 +414,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
                         # raise WorkerCanceled() instead of returning a (potentially incorrect) result.
                         await self._kill_subprocesses(loop)
             if self._in_shutdown:
-                raise WorkerCanceled()  # noqa: RSE102
+                raise WorkerCanceled
         return ty.cast("ResultType", ret)
 
     async def _create_pool(self) -> ProcessPoolExecutor:

@@ -118,7 +118,7 @@ async def batch_enqueue(
         tasks: ty.Iterable[TaskType] = work_spec
 
         class DummyWorkSpec(WorkSpecification):
-            async def list_tasks(self, SeedType, force: bool = False):  # noqa: N803
+            async def list_tasks(self, seed, force: bool = False):
                 for task in tasks:
                     yield task
 
