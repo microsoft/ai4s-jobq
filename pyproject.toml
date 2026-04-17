@@ -188,6 +188,7 @@ ignore = [
   "T201",    # print OK in tests
   "PLW0603", # global statement OK in test fixtures
   "ASYNC220",# subprocess in async OK in tests
+  "ASYNC240",# sync path ops (read_text, getsize) OK in tests
 ]
 "ai4s/jobq/cli.py" = ["T201", "S603", "S607", "ASYNC220"]  # CLI runs subprocesses
 "ai4s/jobq/track/**/*.py" = ["T201"]  # print OK in dashboard
@@ -206,6 +207,7 @@ ignore = [
   "S324",    # md5 for content hashing, not security
   "S301",    # pickle — intentional for serialization
   "ASYNC230",# blocking open in async — existing pattern
+  "ASYNC240",# sync path ops (getsize, relpath, abspath) — not blocking I/O
   "SIM115",  # context manager for open — async compat
 ]
 "ai4s/jobq/blob_stash.py" = [
