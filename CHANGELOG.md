@@ -8,8 +8,8 @@ Fixes:
 
 * **Fix Service Bus REST ``peek_messages()`` using AMQP SDK.**
   The REST API ``peekonly=true`` parameter behaves inconsistently across
-  Service Bus namespace tiers — on some it returns 404, on others it
-  silently locks the message instead of peeking.  Replaced with the native
+  Service Bus namespace tiers—on some it returns 404, on others it
+  silently locks the message instead of peeking. Replaced with the native
   AMQP-based ``ServiceBusReceiver.peek_messages`` for true non-destructive
   peek (no locks, no delivery-count increment).
 
@@ -62,7 +62,7 @@ Feature:
 * **Improve Azure Monitor configuration.**
   Suppress ``AppDependencies`` table noise with ``sampling_ratio=0.0``,
   disable performance counters and live metrics by default, find the Azure
-  Add exception filtering to ``CustomDimensionsFilter`` to redirect 
+  Add exception filtering to ``CustomDimensionsFilter`` to redirect
   exceptions from ``AppExceptions`` to ``AppTraces``.
 
 3.5.0 (2026-04-07)
@@ -83,9 +83,9 @@ Fixes:
   connection break the worker.
 
 * **Resilient ``requeue()`` on worker cancellation.**
-  A failed ``requeue()`` call (e.g. expired lock) inside the
+  A failed ``requeue()`` call (for example, expired lock) inside the
   ``WorkerCanceled`` handler no longer replaces the exception and kills
-  the worker — the error is logged and the cancellation flow continues.
+  the worker—the error is logged and the cancellation flow continues.
 
 * **Non-blocking ``ProcessPool.__aexit__``.**
   Final pool shutdown in ``__aexit__`` also runs via ``run_in_executor``
@@ -106,7 +106,7 @@ Features:
 * Set `job_url` from environment variable if not running on azureml, so that the grafana dashboard links to the correct job details page even for non-azureml jobs.
 * Moved ``worker_id`` and other per-call logging extras into
   ``CustomDimensionsFilter`` so they are automatically attached to every log
-  record.  A new ``set_custom_dimensions()`` helper in ``logging_utils``
+  record. A new ``set_custom_dimensions()`` helper in ``logging_utils``
   lets callers register process-wide dimensions once instead of threading
   them through every ``extra={…}`` dict.
 
@@ -118,6 +118,7 @@ Features:
   Insights connection string was present).
 
 Fixes:
+
 * Each async worker now gets a unique ``worker_id``
   (``<node_id>:<idx>`` when ``num_workers > 1``) so log records can be
   attributed to individual workers rather than just the node.
@@ -128,7 +129,7 @@ Fixes:
 Features:
 
 * Include ``azureml_workspace_name`` in Application Insights custom dimensions
-  even when ``AZUREML_RUN_ID`` is not set (e.g. AzureML batch jobs), so
+  even when ``AZUREML_RUN_ID`` is not set (for example, AzureML batch jobs), so
   Grafana dashboards can filter by workspace for all job types.
 
 Fixes:
@@ -140,21 +141,12 @@ Fixes:
 * Increase retry attempts for ``get_approximate_size()`` from 3 to 10 to
   better tolerate transient Service Bus admin API failures.
 
-3.2.0 (2026-03-20)
-------------------
-
-Features:
-
-* Include ``azureml_workspace_name`` in Application Insights custom dimensions
-  even when ``AZUREML_RUN_ID`` is not set (e.g. AzureML batch jobs), so
-  Grafana dashboards can filter by workspace for all job types.
-
 3.1.0 (2026-03-19)
 ------------------
 
 Features:
 
-* Added GitHub Copilot skill support.  A CLI reference and documentation
+* Added GitHub Copilot skill support. A CLI reference and documentation
   bundle is now auto-installed to ``~/.copilot/skills/ai4s-jobq-cli/`` on
   first invocation, giving Copilot rich context about every ``ai4s-jobq``
   subcommand.
@@ -173,7 +165,7 @@ Fixes:
 
 * Fixed inconsistent ``queue`` property in Application Insights logs.
   ``LOG.exception`` and ``LOG.info`` for task failures/retries explicitly set
-  ``queue`` to ``self.full_name`` (e.g. ``livdft.servicebus.windows.net/…``),
+  ``queue`` to ``self.full_name`` (for example, ``livdft.servicebus.windows.net/…``),
   overriding the ``sb://…`` format set by the ``CustomDimensionsFilter``.
   Removed the redundant overrides so all log events use the same short format.
 
@@ -183,10 +175,10 @@ Fixes:
 
 Fixes:
 
-* Fixed dead-lettering in the Service Bus REST backend.  The REST API does
-  not support explicit dead-lettering — the previous implementation silently
+* Fixed dead-lettering in the Service Bus REST backend. The REST API does
+  not support explicit dead-lettering—the previous implementation silently
   abandoned messages instead, causing them to cycle back into the main queue
-  until ``MaxDeliveryCount`` was hit.  Dead-lettering now uses a one-off AMQP
+  until ``MaxDeliveryCount`` was hit. Dead-lettering now uses a one-off AMQP
   management link to settle the message using the lock token already held by
   the REST peek-lock, which is atomic and race-free.
 
@@ -227,7 +219,7 @@ Features:
   Service Bus duplicate detection to silently drop re-submitted tasks.
 
 * A warning is now logged on startup when the queue's duplicate detection
-  setting does not match the ``JOBQ_DETERMINISTIC_IDS`` configuration — in
+  setting does not match the ``JOBQ_DETERMINISTIC_IDS`` configuration—in
   either direction.
 
 * Application Insights with RBAC authentication is now supported. The credential
@@ -313,7 +305,7 @@ Fixes:
 
 Fix:
 
-* Collect exceptions from threadpoolexecution
+* Collect exceptions from `ThreadPoolExecution`
 * Azureml job could not be copied and failed silently
 
 2.13.0 (2025-11-05)
@@ -322,7 +314,7 @@ Fix:
 Features:
 
 * Workforce now has a function `get_available_to_hire`, which determines how many workers can be hired for azureml clusters. This can be used for smarter scheduling.
-* Multiregion-Workforce: instead of calculating the available_to_hire itself for AML clusters, it now uses the unified `Workforce.get_available_to_hire`
+* Multiregion-Workforce: instead of calculating `available_to_hire` itself for AML clusters, it now uses the unified `Workforce.get_available_to_hire`
 
 
 2.12.0 (2025-11-04)
@@ -355,7 +347,7 @@ Features:
 
 * Storage queue backend now supports a dead letter queue
 * Apply custom dimensions filter to azure log analytics logging, which adds job/worker meta data to each log line.
-* Expose logging setup for for SDK (not CLI) users via `ai4s.jobq.setup_logging`.
+* Expose logging setup for SDK (not CLI) users via `ai4s.jobq.setup_logging`.
 
 2.9.0 (2025-09-05)
 -------------------
@@ -376,6 +368,7 @@ Fixes:
 -------------------
 
 Features:
+
 * add feature to workforce to automatically create service bus topic and subscription if parameters are provided
 * add feature to multiregion workforce to scale down by laying off queued workers
 
@@ -416,7 +409,7 @@ Features:
 Features:
 
 * log metadata to log analytics for every record.
-* explicitly log task_canceled events to log analytics.
+* explicitly log `task_canceled` events to log analytics.
 * avoid line breaks in non-interactive environment
 
 
@@ -516,7 +509,7 @@ Misc:
 
 Features:
 
-* log when SIGTERM is received (eg during preemption)
+* log when SIGTERM is received (for example, during preemption)
 
 2.3.0 (2025-05-07)
 ------------------
@@ -547,7 +540,7 @@ Potentially Breaking Change:
 * ShellCommandProcessor: Stop using login shells, since Singularity runs a lot of unwanted commands for login shells.
   If you have to rely on a login shell, set JOBQ_USE_LOGIN_SHELL=true in your worker environment, though it's not recommended.
 
-  You may need to e.g. manually initialize conda in each command before you can conda activate an environment.
+  You may need to manually initialize conda in each command before you can conda activate an environment.
 
 
 1.13.1 (2025-02-25)
@@ -556,7 +549,7 @@ Potentially Breaking Change:
 Fixes:
 
 * fix bug that prevented jobs from reappearing in the queue after a worker is preempted.
-* tasks were sometimes canceled but not awaited, resulting in potentially unecessary verbose/scary exits
+* tasks were sometimes canceled but not awaited, resulting in potentially unnecessary verbose/scary exits
 
 
 1.13.0 (2025-02-13)
@@ -564,7 +557,7 @@ Fixes:
 
 Fixes:
 
-* logging of number of succeeded/failed tasks to mlflow was incorrect when used with multiple ayncio workers per process. Now, the correct number of tasks is logged.
+* logging of number of succeeded/failed tasks to mlflow was incorrect when used with multiple asyncio workers per process. Now, the correct number of tasks is logged.
 
 1.12.0 (2025-01-29)
 -------------------
@@ -587,8 +580,8 @@ Fixes:
 
 * service bus backend was broken in a few ways:
 
-  - concurrent queueing isn't supported, added lock
-  - service-side locking wasn't working, explicitly registered peek-locked messages
+  * concurrent queueing isn't supported, added lock
+  * service-side locking wasn't working, explicitly registered peek-locked messages
 
 * ai4s-jobq amlt: remove tmpfile after submit
 
@@ -616,7 +609,7 @@ Features:
 
 Fixes:
 
-* Logging in storage_queue complained about unconverted argument
+* Logging in `storage_queue` complained about unconverted argument
 
 1.8.0 (2024-05-18)
 ------------------
@@ -635,6 +628,7 @@ Features:
 ------------------
 
 Fixes:
+
 * allow workers to exit cleanly when an exception occurs during batch enqueue
 * add signal handling (this is not yet functional, waiting for AML to do their part)
 
@@ -644,21 +638,25 @@ Fixes:
 ------------------
 
 Features:
+
 * New `download_folder` function in `blob.py`
 
 Fixes:
+
 * prepend a `cd` command to `cmd` in the ShellCommandLauncher to ensure correct working directory even if AML changed `/etc/profile`.
 
 1.4.1 (2024-04-25)
 ------------------
 
 Fixes:
+
 * amlt subcommand did not join the subprocess
 
 1.4.0 (2024-04-19)
 ------------------
 
 Features:
+
 * Simplify entry point when only sequential computing is needed
 * Inject jobq env vars into amlt config when using amlt subcommand
 * Allow authentication with user-assigned identity on AML clusters rather than keys
@@ -667,6 +665,7 @@ Features:
 ------------------
 
 Features:
+
 * When bash is available, use it (as a login shell) to execute the command.
   This allows `conda activate` etc to work provided it has been set up in the
   bashrc.
@@ -675,26 +674,31 @@ Features:
 ------------------
 
 Fixes:
+
 * Changed default authentication mechanism from `DefaultAzureCredential` to `AzureCliCredential`.
 
 1.2.3 (2024-04-02)
 ------------------
 
 Fixes:
+
 * storage queue backend: race conditions when heartbeat got canceled
 1.2.3 (2024-04-03)
+
 ------------------
 
 1.2.2 (2024-02-27)
 ------------------
 
 Fixes:
+
 * storage queue backend: deleting tasks failed with error that "reply" is not implemented
 
 1.2.1 (2024-02-26)
 ------------------
 
 Fixes:
+
 * `ai4s-jobq amlt` crashed when exposing`JOBQ_STORAGE` environment variable
 
 
@@ -702,16 +706,19 @@ Fixes:
 ------------------
 
 Features:
+
 * Service Bus backend added. This allows waiting for job results and prepares
-  for call_in_config integration.
+  for `call_in_config` integration.
 
 1.1.0
 -----
 
 Fixes:
+
 * stricter type checking, fix some type hints
 
 Features:
+
 * new `upload_from_folder` method in `BlobContainer` that allows parallel uploads of files in the folder
 * simplified imports from top level package
 
@@ -720,6 +727,7 @@ Features:
 -----
 
 Fixes:
+
 * any CLI `push` call or python `batch_enqueue()` call cleared the queue. Now, clearing is manual.
 * fixed CI test pipeline and tests.
 

@@ -1,0 +1,26 @@
+---
+extends: capitalization
+message: "'%s' should use sentence-style capitalization."
+link: https://developers.google.com/style/capitalization#capitalization-in-titles-and-headings
+level: warning
+scope: heading
+match: $sentence
+indicators:
+  - ':'
+exceptions:
+  - AI
+  - API
+  - APIs
+  - Azure
+  - Azure ML
+  - Azure Service Bus
+  - Azure Storage Queue
+  - CLI
+  - GPU
+  - GPUs
+  - I/O
+  - JobQ
+  - JSON
+  - Python
+  - REST
+  - UUID

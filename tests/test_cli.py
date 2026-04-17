@@ -669,8 +669,10 @@ async def test_empty_queue_finishes_successfully(mocker, queue_name) -> None:
         stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
-    # make sure the worker stated and exists
-    assert (stderr + stdout).count("Worker is still running. Approximate queue size=0.") == 1
+    # make sure the worker started and exited cleanly
+    assert proc.returncode == 0, f"Worker exited with code {proc.returncode}\nstderr: {stderr}"
+    # Heartbeat may or may not fire before the worker exits on an empty queue (race with create_task)
+    assert (stderr + stdout).count("Worker is still running. Approximate queue size=0.") <= 1
     assert (stderr + stdout).count("Pool exited.") == 1
     assert (stderr + stdout).count("Stopping workforce monitor") == 1
     # should be done in less than the task's sleep time

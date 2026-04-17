@@ -32,14 +32,14 @@ You can query the logs in App Insights or the connected Log Analytics workspace 
 
 You can run ``ai4s-jobq {queue spec} track {workspace_id}``. This will open a local http server that runs
 common queries repeatedly and visualizes the results as graphs in your browser.
-Note that the ``workspace_id`` is *not* the resoure ID but the UUID of the workspace that you can
+Note that the ``workspace_id`` is *not* the resource ID but the UUID of the workspace that you can
 find in the "Overview" tab of your Log Analytics workspace instance on the azure portal.
 You can also set this via the environment variable ``LOG_ANALYTICS_WORKSPACE_ID`` and omit it on the command line.
 
 
 ### Grafana dashboard
 
-1. Create a [Grafana instance](https://learn.microsoft.com/en-us/azure/managed-grafana/quickstart-managed-grafana-portal) if not existing already. This is typically shared across projects. 
+1. Create a [Grafana instance](https://learn.microsoft.com/en-us/azure/managed-grafana/quickstart-managed-grafana-portal) if not existing already. This is typically shared across projects.
 
 2. [Import the pre-made dashboard](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/import-dashboards/) into Grafana if not existing already. Make sure to [assign the "Monitoring Reader" role](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments-portal) for your [Grafana system identity](https://learn.microsoft.com/en-us/azure/managed-grafana/how-to-authentication-permissions#use-a-system-assigned-managed-identity) to your project resource groups (or whole subscription) so that the dashboard can read the JobQ logs.
 

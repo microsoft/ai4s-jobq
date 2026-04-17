@@ -11,7 +11,7 @@ depends on...) `async` code, but it's not strictly necessary.
 
 ## Queueing and Running
 
-Rather than submitting tasks one by one using the CLI as shown in the basic example, you can implement the `ai4s.jobq.orchestration.WorkSpecification` protocol in Python to list all your tasks quickly. 
+Rather than submitting tasks one by one using the CLI as shown in the basic example, you can implement the `ai4s.jobq.orchestration.WorkSpecification` protocol in Python to list all your tasks quickly.
 
 ```python
 from azure.identity import AzureCliCredential
@@ -104,9 +104,9 @@ async with JobQ.from_storage_queue("test-queue", storage_account="ai4science0eas
 
 ## Multiple Workers
 
-If your tasks are genuinely asynchronous, ie, they mostly call asynchronous APIs, you can just set `num_workers=5` etc. when calling launch_workers.
+If your tasks are genuinely asynchronous, that is, they mostly call asynchronous APIs, you can just set `num_workers=5` etc. when calling launch_workers.
 
-Otherwise, you can use a `ProcessPool` to make sure computationally-intensive work can be parallelized and does not block the queue.
+Otherwise, you can use a `ProcessPool` to make sure computationally intensive work can be parallelized and does not block the queue.
 
 ```python
 import os
@@ -219,7 +219,7 @@ work_specification = BlobSizeCounting()
 Similar to `download_file`, there's also `upload_file` and `upload_from_folder`.
 The latter uploads all files in the folder concurrently.
 
-## Checking if work has already been done before enqueing
+## Checking if work has already been done before enqueuing
 
 You can overload the `already_done` method to prevent a listed item from queueing.
 This is useful when checking the item takes time. There's a separate worker

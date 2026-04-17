@@ -25,3 +25,17 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+-   repo: https://github.com/PyCQA/doc8
+    rev: v1.1.2
+    hooks:
+      - id: doc8
+-   repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.44.0
+    hooks:
+      - id: markdownlint
+-   repo: https://github.com/errata-ai/vale
+    rev: v3.13.0
+    hooks:
+      - id: vale
+        args: [--minAlertLevel, error]
+        types_or: [markdown, rst]
