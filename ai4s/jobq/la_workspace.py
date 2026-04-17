@@ -49,7 +49,7 @@ def workspace_id_from_ikey(ikey: str):
 
     if not result.data or len(result.data) == 0:
         raise WorkspaceNotFoundError("No Application Insights found for that instrumentation key.")
-    item = result.data[0]  # type: ignore[index]  # data is a list at runtime
+    item = result.data[0]  # type: ignore[index]  # data is list at runtime; stubs vary across versions
     LOG.info(
         f"Found App Insights: {item['name']} in RG {item['resourceGroup']} (sub {item['subscriptionId']})"
     )

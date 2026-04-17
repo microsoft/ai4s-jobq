@@ -124,6 +124,12 @@ module = [
 ]
 warn_unused_ignores = false
 
+[[tool.mypy.overrides]]
+module = [
+  "ai4s.jobq.la_workspace",
+]
+warn_unused_ignores = false  # azure-mgmt-resourcegraph stubs vary across versions
+
 [tool.pytest.ini_options]
 addopts = "--asyncio-mode=auto"
 
