@@ -30,6 +30,33 @@ jobs:
     - name: Mypy
       run: mypy ai4s/ --no-namespace-packages
 
+  docs-lint:
+    name: Docs Lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: Install linters
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install doc8 vale
+        npm install -g markdownlint-cli
+    - name: Download Vale styles
+      run: vale sync
+    - name: doc8 (RST)
+      run: doc8
+    - name: markdownlint (Markdown)
+      run: markdownlint '**/*.md' --ignore node_modules --ignore vale-styles
+    - name: Vale (prose style)
+      run: vale --minAlertLevel error docs/ README.md CONTRIBUTING.md SUPPORT.md SECURITY.md CODE_OF_CONDUCT.md
+
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
