@@ -12,7 +12,7 @@ set -o monitor
 python main.py
 ```
 
-Your process can catch the signal and eg trigger saving a checkpoint.
+Your process can catch the signal and, for example, trigger saving a checkpoint.
 
 There's an important distinction here between Manifold and AzureML Compute:
 
@@ -34,6 +34,7 @@ Your subprocesses can then install their own signal handlers as they please.
 ## Preemption walkthrough
 
 If you want your code to be preemptible, you can start with the following sample script which is called dummy_task.py:
+
 ```python
 import signal
 import time
@@ -87,6 +88,7 @@ async with JobQ.from_storage_queue(
 
 You can then start a local ai4s-jobq worker to process the tasks:
 Note that this example uses `--num-workers 2` to start two workers on the same node, so two tasks run in parallel.
+
 ```shell
 ai4s-jobq <YOUR-STORAGE-ACCOUNT>/demo-preemption worker --num-workers 2 --heartbeat --max-consecutive-failures 5 --time-limit 1d
 ```

@@ -2,7 +2,7 @@
 
 ## Overview
 
-By default, `ai4s-jobq` generates **deterministic task IDs** — identical tasks
+By default, `ai4s-jobq` generates **deterministic task IDs**—identical tasks
 always produce the same ID (the MD5 hash of the serialized task content).
 When combined with Azure Service Bus **duplicate detection**, re-submitting the
 same task within the detection window is silently ignored by the broker.
@@ -21,14 +21,14 @@ succeeded.
 
 Queues created by `ai4s-jobq` v3.0+ have duplicate detection enabled
 automatically. **Existing queues** created by earlier versions must be deleted
-and recreated to gain this capability — Azure does not allow enabling duplicate
+and recreated to gain this capability—Azure does not allow enabling duplicate
 detection on an existing queue.
 
 ## Configuration
 
 | Parameter | CLI flag | Default | Description |
 |---|---|---|---|
-| `JOBQ_DETERMINISTIC_IDS` | — | `true` | When `true`, task IDs are the MD5 hash of the payload. When `false`, a random UUID is generated for each task. |
+| `JOBQ_DETERMINISTIC_IDS` | n/a | `true` | When `true`, task IDs are the MD5 hash of the payload. When `false`, a random UUID is generated for each task. |
 | `duplicate_detection_window` | `--dedup-window` | `7` (days) | Duration of the Service Bus duplicate detection history window. Passed as integer days on the CLI or as a `timedelta` in the Python API. |
 
 Set `JOBQ_DETERMINISTIC_IDS=false` if you intentionally want every push to
@@ -39,10 +39,10 @@ create a distinct message, even for identical payloads.
 On startup, `ai4s-jobq` checks whether the queue's duplicate-detection setting
 is consistent with `JOBQ_DETERMINISTIC_IDS` and logs a warning if not:
 
-- **Deterministic IDs enabled, but queue has no duplicate detection** — IDs are
+- **Deterministic IDs enabled, but queue has no duplicate detection**—IDs are
   deterministic but the broker won't actually deduplicate. Delete and recreate
   the queue.
-- **Queue has duplicate detection, but deterministic IDs are disabled** — random
+- **Queue has duplicate detection, but deterministic IDs are disabled**—random
   UUIDs mean the broker will never see a duplicate. Either enable deterministic
   IDs or recreate the queue without duplicate detection.
 

@@ -56,7 +56,7 @@ To perform a graceful shutdown, you need to send graceful-shutdown messages to t
 
 Below script sends a message to trigger a graceful downscale in one node. The first worker that picks up the message will terminate after it completes the currently running task.
 
-Topic name configuration can be used to be more specific on which nodes to target, eg. setting same topic name for the nodes in same cluster or region.
+Topic name configuration can be used to be more specific on which nodes to target, for example setting same topic name for the nodes in same cluster or region.
 
 Here is an example code snippet to send a graceful-downscale message.
 

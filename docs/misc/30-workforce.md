@@ -1,7 +1,7 @@
-#  Workforce Management
+# Workforce Management
 
 JobQ comes with tools for managing groups of workers executing the same task.
-We call such a group a "workforce".
+We call such a group a "workforce."
 
 
 ## Workforce Setup
@@ -9,7 +9,7 @@ We call such a group a "workforce".
 A workforce starts a number of azureml jobs in an azureml workspace. Therefore, you need to have a workspace set up. This workspace (`WORKSPACE_NAME`) is in one azure subscription (`SUBSCRIPTION_ID`) and resource group (`RESOURCE_GROUP_NAME`). All jobs are started in one experiment. This is identified by the experiment name (`exp_name`).
 
 
-The first step is to define a task that can be executed by the workforce. You will need an azure.ai.ml.command task. This can be either an azureml or a singularity task. You will need to specify the identity (`IDENTITY_RESOURCE_ID`) which should execute the task. You will also need to specify a docker image (`DOCKER_IMAGE`) that contains the code to be executed. The task can be configured with environment variables. The task can then be submitted to the workforce. The compute cluster will already need to exist in the azureml workspace. 
+The first step is to define a task that can be executed by the workforce. You will need an azure.ai.ml.command task. This can be either an azureml or a singularity task. You will need to specify the identity (`IDENTITY_RESOURCE_ID`) which should execute the task. You will also need to specify a docker image (`DOCKER_IMAGE`) that contains the code to be executed. The task can be configured with environment variables. The task can then be submitted to the workforce. The compute cluster will already need to exist in the azureml workspace.
 
 ```python
 from azure.ai.ml import command
@@ -35,6 +35,7 @@ task = command(
 ```
 
 To connect the workforce to your workspace and task:
+
 ```python
 from ai4s.jobq.orchestration.workforce import Workforce
 from azure.identity import DefaultAzureCredential
@@ -51,16 +52,19 @@ workforce = Workforce(exp_name, task, credential=credential, aml_client=aml_clie
 ```
 
 To then start 3 jobs which execute the task:
+
 ```python
 workforce.hire(3)
 ```
 
 To layoff workers:
+
 ```python
 workforce.lay_off(2)
 ```
 
 To scale to a specific number of workers (this will hire/layoff workers as needed):
+
 ```python
 workforce.scale_to(1, with_layoffs=True)
 ```
@@ -68,7 +72,7 @@ workforce.scale_to(1, with_layoffs=True)
 
 ## Multiregion workforce
 
-If you want to run a workforce across multiple regions, you can use the `MultiRegionWorkforce` class. This class allows you to specify multiple workforces in different regions and manage workers across them. It is important to note that the task should be the same, but the experiment name should be different, e.g. include the name of the region.
+If you want to run a workforce across multiple regions, you can use the `MultiRegionWorkforce` class. This class allows you to specify multiple workforces in different regions and manage workers across them. It is important to note that the task should be the same, but the experiment name should be different, for example include the name of the region.
 
 ```python
 from ai4s.jobq.orchestration.workforce import MultiRegionWorkforce
@@ -86,11 +90,12 @@ multi_region_workforce = MultiRegionWorkforce(
     )
 ```
 
-The multiregion workforce has a feature to automatically determine the number of recommended workers based on the size of the queue. You can see the implementation [here](../../ai4s/jobq/orchestration/workforce.py#L87). Right now, it gets the size of the queue, divides it by the amount of workers per job, then checks how many jobs are already running or queued over all workforces and has a simple if/else logic to determine the number of workers. Also, it only hires at most 10 times the _number of workers currently running + 1_ to avoid scaling up too quickly. If you want your own custom logic, you can subclass the `MultiRegionWorkforce` and override the `determine_number_of_workers` method.
+The multiregion workforce has a feature to automatically determine the number of recommended workers based on the size of the queue. You can see the [implementation in workforce.py](../../ai4s/jobq/orchestration/workforce.py#L87). Right now, it gets the size of the queue, divides it by the amount of workers per job, then checks how many jobs are already running or queued over all workforces and has a simple if/else logic to determine the number of workers. Also, it only hires at most 10 times the _number of workers currently running + 1_ to avoid scaling up too quickly. If you want your own custom logic, you can subclass the `MultiRegionWorkforce` and override the `determine_number_of_workers` method.
 
 So for example, if you queue size is 1600 and we have 4 workers per job, it would want to scale up to 50 workers. Depending on how many are already running:
+
 * if nothing runs, then `determine_number_of_workers` will return 10
-* if 3 workers are already running (e.g. because it hired 10 but 7 are still queued), then it will 40
+* if 3 workers are already running (for example because it hired 10 but 7 are still queued), then it will 40
 
 
 ```python
@@ -102,8 +107,10 @@ If you then run the `MultiregionWorkforce`, it will automatically scale the work
 ```python
 multi_region_workforce.run()
 ```
+
 ## Access to data
-If filesystem access to data is required (read/write), blob storage can be *mounted* using the following tweak to setting up the `command`:
+
+If filesystem access to data is required (read/write), blob storage can be _mounted_ using the following tweak to setting up the `command`:
 
 ```python
 from azure.ai.ml import Output
@@ -152,6 +159,7 @@ Use the same topic for workers that you may want to scale up/down together. A co
 #### Setup
 
 ##### Install JobQ with `workforce` distribution
+
 ```bash
 git clone https://github.com/msr-ai4science/ai4s-jobq
 cd ai4s-jobq
@@ -166,9 +174,9 @@ Follow azure instructions to determine / create a servicebus, at least one topic
 
 The following environment variables need to be set:
 
-- `WORKFORCE_BACK_CHANNEL_FULLY_QUALIFIED_NAMESPACE`: Azure service bus namespace including the host name.
-- `WORKFORCE_CONTROL_TOPIC_NAME`: Topic to publish shutdown messages.
-  - A subscription called `shutdown` needs to be created in this topic.
+* `WORKFORCE_BACK_CHANNEL_FULLY_QUALIFIED_NAMESPACE`: Azure service bus namespace including the host name.
+* `WORKFORCE_CONTROL_TOPIC_NAME`: Topic to publish shutdown messages.
+  * A subscription called `shutdown` needs to be created in this topic.
 
 #### Trigger a Graceful Shutdown
 
@@ -176,7 +184,7 @@ To perform a graceful shutdown, you need to send graceful-shutdown massages to t
 
 Below script sends a message to trigger a graceful downscale in one node. The first worker that picks up the message will terminate after it completes the currently running task.
 
-Topic name configuration can be used to be more specific on which nodes to target, eg. setting same topic name for the nodes in same cluster or region.
+Topic name configuration can be used to be more specific on which nodes to target, for example setting same topic name for the nodes in same cluster or region.
 
 Here is an example code snippet to send a graceful-downscale message.
 

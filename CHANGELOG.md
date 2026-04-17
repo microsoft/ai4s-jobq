@@ -62,7 +62,7 @@ Feature:
 * **Improve Azure Monitor configuration.**
   Suppress ``AppDependencies`` table noise with ``sampling_ratio=0.0``,
   disable performance counters and live metrics by default, find the Azure
-  Add exception filtering to ``CustomDimensionsFilter`` to redirect 
+  Add exception filtering to ``CustomDimensionsFilter`` to redirect
   exceptions from ``AppExceptions`` to ``AppTraces``.
 
 3.5.0 (2026-04-07)
@@ -118,6 +118,7 @@ Features:
   Insights connection string was present).
 
 Fixes:
+
 * Each async worker now gets a unique ``worker_id``
   (``<node_id>:<idx>`` when ``num_workers > 1``) so log records can be
   attributed to individual workers rather than just the node.
@@ -376,6 +377,7 @@ Fixes:
 -------------------
 
 Features:
+
 * add feature to workforce to automatically create service bus topic and subscription if parameters are provided
 * add feature to multiregion workforce to scale down by laying off queued workers
 
@@ -564,7 +566,7 @@ Fixes:
 
 Fixes:
 
-* logging of number of succeeded/failed tasks to mlflow was incorrect when used with multiple ayncio workers per process. Now, the correct number of tasks is logged.
+* logging of number of succeeded/failed tasks to mlflow was incorrect when used with multiple asyncio workers per process. Now, the correct number of tasks is logged.
 
 1.12.0 (2025-01-29)
 -------------------
@@ -587,8 +589,8 @@ Fixes:
 
 * service bus backend was broken in a few ways:
 
-  - concurrent queueing isn't supported, added lock
-  - service-side locking wasn't working, explicitly registered peek-locked messages
+  * concurrent queueing isn't supported, added lock
+  * service-side locking wasn't working, explicitly registered peek-locked messages
 
 * ai4s-jobq amlt: remove tmpfile after submit
 
@@ -635,6 +637,7 @@ Features:
 ------------------
 
 Fixes:
+
 * allow workers to exit cleanly when an exception occurs during batch enqueue
 * add signal handling (this is not yet functional, waiting for AML to do their part)
 
@@ -644,21 +647,25 @@ Fixes:
 ------------------
 
 Features:
+
 * New `download_folder` function in `blob.py`
 
 Fixes:
+
 * prepend a `cd` command to `cmd` in the ShellCommandLauncher to ensure correct working directory even if AML changed `/etc/profile`.
 
 1.4.1 (2024-04-25)
 ------------------
 
 Fixes:
+
 * amlt subcommand did not join the subprocess
 
 1.4.0 (2024-04-19)
 ------------------
 
 Features:
+
 * Simplify entry point when only sequential computing is needed
 * Inject jobq env vars into amlt config when using amlt subcommand
 * Allow authentication with user-assigned identity on AML clusters rather than keys
@@ -667,6 +674,7 @@ Features:
 ------------------
 
 Features:
+
 * When bash is available, use it (as a login shell) to execute the command.
   This allows `conda activate` etc to work provided it has been set up in the
   bashrc.
@@ -675,26 +683,31 @@ Features:
 ------------------
 
 Fixes:
+
 * Changed default authentication mechanism from `DefaultAzureCredential` to `AzureCliCredential`.
 
 1.2.3 (2024-04-02)
 ------------------
 
 Fixes:
+
 * storage queue backend: race conditions when heartbeat got canceled
 1.2.3 (2024-04-03)
+
 ------------------
 
 1.2.2 (2024-02-27)
 ------------------
 
 Fixes:
+
 * storage queue backend: deleting tasks failed with error that "reply" is not implemented
 
 1.2.1 (2024-02-26)
 ------------------
 
 Fixes:
+
 * `ai4s-jobq amlt` crashed when exposing`JOBQ_STORAGE` environment variable
 
 
@@ -702,6 +715,7 @@ Fixes:
 ------------------
 
 Features:
+
 * Service Bus backend added. This allows waiting for job results and prepares
   for call_in_config integration.
 
@@ -709,9 +723,11 @@ Features:
 -----
 
 Fixes:
+
 * stricter type checking, fix some type hints
 
 Features:
+
 * new `upload_from_folder` method in `BlobContainer` that allows parallel uploads of files in the folder
 * simplified imports from top level package
 
@@ -720,6 +736,7 @@ Features:
 -----
 
 Fixes:
+
 * any CLI `push` call or python `batch_enqueue()` call cleared the queue. Now, clearing is manual.
 * fixed CI test pipeline and tests.
 

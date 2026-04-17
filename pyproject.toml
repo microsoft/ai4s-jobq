@@ -235,3 +235,7 @@ known-third-party = ["amlt", "wandb"]
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false
+
+[tool.doc8]
+max-line-length = 100
+paths = ["docs"]

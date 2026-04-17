@@ -1,0 +1,11 @@
+---
+extends: substitution
+message: Use '%s' instead of '%s'.
+level: warning
+ignorecase: true
+scope: paragraph
+action:
+  name: replace
+swap:
+  e.g.: for example
+  eg.: for example
