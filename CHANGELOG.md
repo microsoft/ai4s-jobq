@@ -17,10 +17,6 @@ Fixes:
   After queue operations the Service Bus data-plane may briefly return 404.
   ``peek_lock_message`` now retries up to 3 times with a 2 s back-off.
 
-* **Simplify ``clear()`` to a straightforward drain loop.**
-  Removed unnecessary complexity; the method now calls
-  ``receive_and_delete`` in a loop until the queue is empty.
-
 Internal:
 
 * **Enable strict linting, type checking, and CI hardening.**
