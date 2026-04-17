@@ -38,6 +38,7 @@ jobq
 [Kk]usto
 [Kk]wargs
 launch_workers
+[Mm]arkdownlint
 [Mm][Ll]flow
 [Mm]onty
 [Mm]ultiprocessing

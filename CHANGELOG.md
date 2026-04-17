@@ -23,6 +23,13 @@ Internal:
   Added 25+ ruff rule groups, strict mypy configuration, split CI into
   lint / test / docs jobs, added PR review workflow and CODEOWNERS.
 
+* **Add doc8, markdownlint, and Vale documentation linters.**
+  Added three documentation linters as pre-commit hooks and a CI job:
+  doc8 for RST structure, markdownlint for Markdown formatting, and Vale
+  for prose style (Google style base with custom JobQ rules and vocabulary).
+  Fixed all existing lint issues including Latin abbreviation replacements,
+  em-dash spacing, typos, and heading hierarchy.
+
 3.7.0 (2026-04-16)
 ------------------
 
