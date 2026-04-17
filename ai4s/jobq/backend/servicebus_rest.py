@@ -275,15 +275,26 @@ class ServiceBusRestClient:
         url = f"{self._base_url}/{self.queue_name}/messages/head"
         params = {"timeout": str(timeout)}
 
-        resp = await self._request("POST", url, params=params)
-        try:
-            if resp.status in (204, 404):
-                raise EmptyQueue(f"The queue {self.fqns}/{self.queue_name} has no more tasks.")
-            resp.raise_for_status()
-            body = await resp.text()
-            return _ReceivedMessage.from_response(resp, body)
-        finally:
-            resp.close()
+        # The SB data plane may briefly return 404 after queue operations;
+        # retry a few times before giving up.
+        for attempt in range(3):
+            resp = await self._request("POST", url, params=params)
+            try:
+                if resp.status == 204:
+                    raise EmptyQueue(f"The queue {self.fqns}/{self.queue_name} has no more tasks.")
+                if resp.status == 404:
+                    if attempt < 2:
+                        LOG.debug("Transient 404 on receive (attempt %d), retrying...", attempt + 1)
+                        await asyncio.sleep(2)
+                        continue
+                    raise EmptyQueue(f"The queue {self.fqns}/{self.queue_name} has no more tasks.")
+                resp.raise_for_status()
+                body = await resp.text()
+                return _ReceivedMessage.from_response(resp, body)
+            finally:
+                resp.close()
+        # Unreachable, but keeps mypy happy
+        raise EmptyQueue(f"The queue {self.fqns}/{self.queue_name} has no more tasks.")
 
     async def receive_and_delete_message(self, timeout: int = 2) -> str | None:
         """Receive and immediately delete one message (destructive read)."""
@@ -390,23 +401,32 @@ class ServiceBusRestClient:
             resp.close()
 
     async def peek_messages(self, n: int = 1) -> list[dict]:
-        """Non-destructive peek at messages (no lock acquired)."""
+        """Non-destructive peek at messages (no lock acquired).
+
+        Uses the native AMQP-based ``ServiceBusReceiver.peek_messages`` for
+        a true non-destructive peek.  The REST API ``peekonly`` parameter
+        behaves inconsistently across namespace tiers (sometimes locks
+        messages instead of peeking, sometimes returns 404), so we avoid it.
+        """
+        from azure.servicebus.aio import ServiceBusClient
+
+        async with ServiceBusClient(
+            fully_qualified_namespace=self.fqns,
+            credential=self._credential,
+        ) as client:
+            receiver = client.get_queue_receiver(self.queue_name)
+            async with receiver:
+                sdk_msgs = await receiver.peek_messages(max_message_count=n)
+
         messages: list[dict] = []
-
-        for _ in range(n):
-            url = f"{self._base_url}/{self.queue_name}/messages/head"
-            params = {"peekonly": "true"}
-            resp = await self._request("POST", url, params=params)
-            try:
-                if resp.status == 204:
-                    break
-                resp.raise_for_status()
-                body = await resp.text()
-                broker_props = json.loads(resp.headers.get("BrokerProperties", "{}"))
-                messages.append({"body": body, "broker_properties": broker_props})
-            finally:
-                resp.close()
-
+        for m in sdk_msgs:
+            body = str(m)
+            broker_props: dict[str, ty.Any] = {}
+            if m.message_id:
+                broker_props["MessageId"] = m.message_id
+            if m.sequence_number is not None:
+                broker_props["SequenceNumber"] = m.sequence_number
+            messages.append({"body": body, "broker_properties": broker_props})
         return messages
 
 
@@ -816,7 +836,7 @@ class ServiceBusRestBackend(JobQBackend):
             if body is None:
                 break
             n += 1
-        LOG.info(f"Cleared {n} messages from queue {self.queue_name}.")
+        LOG.info("Cleared %d messages from queue %s.", n, self.queue_name)
 
     @asynccontextmanager
     async def _get_admin_client(self) -> ty.AsyncGenerator[ServiceBusAdministrationClient, None]:
