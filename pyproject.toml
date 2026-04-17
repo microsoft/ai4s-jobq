@@ -41,7 +41,7 @@ local_scheme = "no-local-version"
 
 [project.optional-dependencies]
 dev = [
-    "tox", "tox-conda", "pytest", "pytest-asyncio", "pytest-mock", "wait-for-it", "types-psutil", "types-cachetools", "pandas-stubs", "plotly-stubs", "mypy",
+    "tox", "tox-conda", "pytest", "pytest-asyncio", "pytest-mock", "wait-for-it", "types-psutil", "types-cachetools", "pandas-stubs", "plotly-stubs", "mypy", "ruff",
     "sphinx",
     "sphinx-autodoc-typehints",
     "sphinx-rtd-theme",
