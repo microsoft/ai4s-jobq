@@ -41,6 +41,47 @@ Mypy runs with `check_untyped_defs`, `warn_redundant_casts`, `warn_unused_ignore
 `warn_return_any`, and `no_implicit_reexport` enabled. The pre-commit hook installs
 the package itself as a dependency for full type coverage.
 
+## Documentation Lint
+
+Docs use a mix of RST (`docs/*.rst`) and Markdown (`docs/**/*.md`, `README.md`, `CONTRIBUTING.md`),
+built with Sphinx + myst_parser. Three doc linters run as pre-commit hooks:
+
+```bash
+# Run all doc linters via pre-commit
+pre-commit run doc8 --all-files
+pre-commit run markdownlint --all-files
+pre-commit run vale --all-files
+
+# Or individually:
+doc8                                                    # RST only
+npx markdownlint-cli '**/*.md' --ignore node_modules --ignore vale-styles  # Markdown only
+vale docs/ README.md CONTRIBUTING.md SUPPORT.md         # prose style (MD + RST)
+```
+
+**doc8** checks RST structure (line length ≤ 100, whitespace, syntax). Config in `pyproject.toml`
+under `[tool.doc8]`.
+
+**markdownlint** checks Markdown formatting. Config in `.markdownlint.json` (MD013 line-length
+disabled, MD024 siblings_only). Files excluded in `.markdownlintignore` (CHANGELOG.md,
+`ai4s/jobq/data/`).
+
+**Vale** checks prose style using the Google style guide as a base, plus custom rules in
+`vale-styles/JobQ/`. Config in `.vale.ini`. Key points:
+
+- Run `vale sync` after cloning to download the Google style package (gitignored under
+  `vale-styles/Google/`).
+- Custom vocabulary in `vale-styles/config/vocabularies/JobQ/accept.txt` — add new technical
+  terms here when Vale flags legitimate project jargon as spelling errors.
+- Custom rules: `JobQ.Headings` (sentence-case with acronym exceptions),
+  `JobQ.Latin` (prefer "for example" over "e.g.").
+- The pre-commit hook runs with `--minAlertLevel error` so warnings don't block commits.
+- CHANGELOG.md is excluded from all Vale rules (auto-generated content).
+- Noisy rules (passive voice, contractions, parenthetical usage) are disabled — see `.vale.ini`.
+
+When writing or editing docs, prefer plain English over Latin abbreviations ("for example" not
+"e.g.", "that is" not "i.e."), use em-dashes without spaces ("word—word" not "word — word"),
+and keep headings in sentence case.
+
 ## Architecture
 
 **`ai4s.jobq`** is a distributed job queue built on Azure Storage Queues and Azure Service Bus. Users push tasks; workers pull and process them asynchronously.
