@@ -852,7 +852,9 @@ class ServiceBusRestBackend(JobQBackend):
                     return None
                 return ret
 
-        return await _get_message_count()  # type: ignore[return-value]  # tenacity retries until non-None
+        result = await _get_message_count()
+        assert result is not None  # tenacity retries until non-None
+        return result
 
     @property
     def name(self) -> str:

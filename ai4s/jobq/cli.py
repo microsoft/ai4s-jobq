@@ -29,7 +29,7 @@ from ai4s.jobq.logging_utils import JobQRichHandler, setup_logging
 from ai4s.jobq.orchestration import WorkSpecification, batch_enqueue, get_results
 from ai4s.jobq.orchestration.manager import launch_workers
 from ai4s.jobq.skill_file import skill_file_cmd
-from ai4s.jobq.work import DefaultSeed, ShellCommandProcessor
+from ai4s.jobq.work import DefaultSeed, Processor, ShellCommandProcessor
 
 LOG = logging.getLogger("ai4s.jobq")
 TRACK_LOG = logging.getLogger("ai4s.jobq.track")
@@ -161,25 +161,20 @@ class ProcessorParam(click.ParamType):
         return "[shell | map-in-config | <module>.<class>]"
 
     @staticmethod
-    def get_class_from_string(qualified_name: str):
-        # Split the fully qualified name into module and class parts
+    def get_class_from_string(qualified_name: str) -> type[Processor]:
         parts = qualified_name.split(".")
         module_name = ".".join(parts[:-1])
         class_name = parts[-1]
-
-        # Import the module dynamically
         module = importlib.import_module(module_name)
-
-        # Get the class from the module
         cls = getattr(module, class_name)
-        return cls
+        return cls  # type: ignore[no-any-return]  # dynamic class loading
 
     def convert(
         self,
         value: str | None,
         param: click.Parameter | None,
         ctx: click.Context | None,
-    ) -> type[ShellCommandProcessor] | None:
+    ) -> type[Processor] | None:
         if value is None:
             return None
         if value == "shell":
@@ -187,13 +182,8 @@ class ProcessorParam(click.ParamType):
         if value == "map-in-config":
             from ai4s.jobq.ext.map_in_config import MapInConfigProcessor
 
-            return MapInConfigProcessor  # type: ignore[return-value]
-        return self.get_class_from_string(value)  # type: ignore[no-any-return]
-        return self.fail(
-            f"Expected one of 'shell' or 'map-in-config', got {value!r}",
-            param,
-            ctx,
-        )
+            return MapInConfigProcessor
+        return self.get_class_from_string(value)
 
 
 @dataclass
@@ -535,7 +525,7 @@ async def amlt_worker(ctx: click.Context, time_limit: timedelta, amlt_args: list
 async def pull(
     ctx: click.Context,
     visibility_timeout: timedelta,
-    proc_cls: type[ShellCommandProcessor],
+    proc_cls: type[Processor],
 ) -> None:
     """Pull and execute a job"""
     # hours are set so they can just be used with user identity.
@@ -614,7 +604,7 @@ async def workers(
     time_limit: timedelta,
     max_consecutive_failures: int,
     heartbeat: bool,
-    proc_cls: type[ShellCommandProcessor],
+    proc_cls: type[Processor],
     emulate_tty: bool = False,
 ) -> None:
     """Like pull, but start multiple async workers."""
@@ -642,7 +632,7 @@ async def workers(
             # Emulate a TTY for the worker, forces line buffering (useful if logs get lost when preempted).
             kwargs["emulate_tty"] = True
 
-        async with proc_cls(num_workers=num_workers, **kwargs) as proc:
+        async with proc_cls(num_workers=num_workers, **kwargs) as proc:  # type: ignore[call-arg]
             await launch_workers(
                 queue,
                 processor=proc,
