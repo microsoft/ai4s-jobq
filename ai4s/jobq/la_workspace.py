@@ -7,6 +7,7 @@ from subprocess import CalledProcessError, check_output
 
 from azure.mgmt.loganalytics import LogAnalyticsManagementClient
 from azure.mgmt.resourcegraph import ResourceGraphClient
+from azure.mgmt.resourcegraph.models import QueryRequest
 
 from ai4s.jobq.auth import get_sync_token_credential
 from ai4s.jobq.logging_utils import LOG
@@ -42,13 +43,13 @@ def workspace_id_from_ikey(ikey: str):
     | project name, resourceGroup, subscriptionId, workspaceResourceId=tostring(properties.WorkspaceResourceId)
     """
 
-    result = rg_client.resources(  # type: ignore[call-overload]
-        query={"subscriptions": [], "query": query}  # [] = all accessible subs
+    result = rg_client.resources(
+        query=QueryRequest(subscriptions=[], query=query)  # [] = all accessible subs
     )
 
     if not result.data or len(result.data) == 0:
         raise WorkspaceNotFoundError("No Application Insights found for that instrumentation key.")
-    item = result.data[0]
+    item = result.data[0]  # type: ignore[index]  # data is a list at runtime
     LOG.info(
         f"Found App Insights: {item['name']} in RG {item['resourceGroup']} (sub {item['subscriptionId']})"
     )
@@ -108,13 +109,13 @@ def workspace_id_from_ws_name(name: str):
     | project name, resourceGroup, subscriptionId, customerId=tostring(properties.customerId)
     """
 
-    result = rg_client.resources(  # type: ignore[call-overload]
-        query={"subscriptions": [], "query": query}  # [] = all accessible subs
+    result = rg_client.resources(
+        query=QueryRequest(subscriptions=[], query=query)  # [] = all accessible subs
     )
 
     if not result.data or len(result.data) == 0:
         raise WorkspaceNotFoundError("No Log Analytics workspace found with that name.")
-    item = result.data[0]
+    item = result.data[0]  # type: ignore[index]  # data is a list at runtime
     LOG.info(
         f"Found LA Workspace: {item['name']} in RG {item['resourceGroup']} (sub {item['subscriptionId']})"
     )
