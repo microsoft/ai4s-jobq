@@ -499,7 +499,16 @@ class RESTServiceBusEnvelope(Envelope):
             self._lock_stop_event.set()
 
     async def replace(self, task: Task) -> None:
-        await self._client.send_message(task.serialize())
+        # Service Bus has no in-place update API, and resending with the same
+        # MessageId would be silently dropped by duplicate detection.  We log
+        # and leave the message as-is; it will be re-delivered after the lock
+        # expires with the original num_retries intact.  Users who need retry
+        # budgets on Service Bus should track retries in their own code.
+        LOG.info(
+            "replace() is a no-op on Service Bus — message %s will be "
+            "re-delivered with its original content after the lock expires.",
+            self.id,
+        )
 
 
 # ── Backend ──────────────────────────────────────────────────────────────
