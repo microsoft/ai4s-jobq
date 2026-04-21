@@ -10,6 +10,18 @@ from ai4s.jobq.entities import Response, Task
 
 
 class Envelope(ty.Protocol):
+    """Represents a message received from the queue.
+
+    .. note:: **Backend-specific behavior of ``replace()``**
+
+       - **Storage Queue**: atomically updates the message content in-place
+         (uses ``update_message``).
+       - **Service Bus**: no-op—Service Bus has no in-place update API.
+         The message will be re-delivered with its original content after
+         the lock expires.  Users who need retry budgets on Service Bus
+         should track retries in their own application code.
+    """
+
     @property
     def task(self) -> Task: ...
 

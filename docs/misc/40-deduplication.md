@@ -51,3 +51,17 @@ is consistent with `JOBQ_DETERMINISTIC_IDS` and logs a warning if not:
 Azure Storage Queues do not support duplicate detection at the broker level.
 Deterministic IDs are still generated (and can be useful for tracking), but
 deduplication must be handled application-side if needed.
+
+## Retry behavior on Service Bus
+
+Azure Service Bus does not support in-place message updates. When a task
+fails and would normally be "replaced" with a decremented retry counter
+(as the Storage Queue backend does), the Service Bus backend instead
+**does nothing**—the message is re-delivered with its original content
+after the lock expires.
+
+This means `num_retries` is **not decremented** on Service Bus. If you
+need retry budgets, track attempts in your own application code or rely
+on the Service Bus `MaxDeliveryCount` setting (queues created by
+`ai4s-jobq` use a high delivery count of 1000 to avoid interfering with
+application-level retry logic).
