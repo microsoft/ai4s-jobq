@@ -152,7 +152,8 @@ class TestRESTServiceBusEnvelope:
         env = self._make_envelope()
         new_task = _make_task(cmd="echo replaced")
         await env.replace(new_task)
-        env._client.send_message.assert_awaited_once()
+        # replace() is a no-op on Service Bus — must NOT send a new message
+        env._client.send_message.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_reply_not_implemented(self):

@@ -1,6 +1,20 @@
 CHANGELOG
 =========
 
+
+3.8.0 (2026-04-21)
+------------------
+
+Fixes:
+
+* **Service Bus ``replace()`` no longer causes message buildup.**
+  The previous implementation sent a new message without deleting the old one,
+  causing the queue to grow with every task failure. ``replace()`` is now a
+  no-op on Service Bus—the message is re-delivered with its original content
+  after the lock expires. Storage Queue behavior is unchanged (atomic
+  in-place update).
+
+
 3.7.1 (2026-04-17)
 ------------------
 
