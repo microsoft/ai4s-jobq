@@ -36,8 +36,8 @@ import random
 import string
 import subprocess
 import time
-from collections.abc import Generator, Iterable
-from datetime import datetime
+from collections.abc import Callable, Generator, Iterable
+from datetime import datetime, timezone
 from typing import Literal
 
 import jwt
@@ -357,6 +357,67 @@ class Workforce:
         else:
             LOG.info(f"{msg} No change needed.")
 
+    # Transient HTTP failures on the AzureML index / ARM endpoints used below
+    # (list_jobs, get_compute_infos) surface as 429 Too Many Requests when the
+    # caller is throttled, and as 500/502/503/504 during transient backend
+    # hiccups. ``requests.Session`` has no built-in retry, so we wrap the
+    # handful of direct HTTP calls in this helper. It honors both the standard
+    # ``Retry-After`` header and Azure's ``x-ms-retry-after-ms`` hint, and
+    # otherwise falls back to exponential backoff with jitter.
+    _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+
+    def _retry_http(
+        self,
+        send: Callable[[], requests.Response],
+        *,
+        max_retries: int = 5,
+        backoff_base: float = 1.0,
+        backoff_cap: float = 60.0,
+    ) -> requests.Response:
+        """Call ``send`` and retry on transient HTTP failures."""
+        response = send()
+        for attempt in range(max_retries):
+            if response.status_code not in self._RETRYABLE_STATUS:
+                return response
+            delay = self._retry_after_seconds(response)
+            if delay is None:
+                delay = min(backoff_cap, backoff_base * (2**attempt)) + random.uniform(0, 1)
+            LOG.warning(
+                "HTTP %s from %s; retrying in %.1fs (attempt %d/%d)",
+                response.status_code,
+                getattr(response.request, "url", "?"),
+                delay,
+                attempt + 1,
+                max_retries,
+            )
+            time.sleep(delay)
+            response = send()
+        return response
+
+    @staticmethod
+    def _retry_after_seconds(response: requests.Response) -> float | None:
+        """Parse ``x-ms-retry-after-ms`` or ``Retry-After`` from ``response``."""
+        ms = response.headers.get("x-ms-retry-after-ms")
+        if ms is not None:
+            try:
+                return max(0.0, float(ms) / 1000.0)
+            except ValueError:
+                pass
+        ra = response.headers.get("Retry-After")
+        if ra is None:
+            return None
+        try:
+            return max(0.0, float(ra))
+        except ValueError:
+            pass
+        try:
+            dt = _parse_utc(ra)
+        except (ValueError, TypeError):
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds())
+
     def list_jobs(
         self,
         with_status: Iterable[Status] | None = None,
@@ -406,11 +467,12 @@ class Workforce:
         while True:
             token = self._credential.get_token("https://ml.azure.com/.default")
             headers = {"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
-            response = self.session.post(
-                url,
-                json=dict(**payload, continuationToken=continuation_token),
-                headers=headers,
-            )
+            request_body = dict(**payload, continuationToken=continuation_token)
+
+            def _post(url=url, body=request_body, hdrs=headers) -> requests.Response:
+                return self.session.post(url, json=body, headers=hdrs)
+
+            response = self._retry_http(_post)
 
             if response.status_code != 200:
                 raise RuntimeError(
@@ -563,7 +625,7 @@ class Workforce:
 
         token = self._credential.get_token("https://management.core.windows.net/.default")
         headers = {"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
-        response = self.session.get(url, headers=headers)
+        response = self._retry_http(lambda: self.session.get(url, headers=headers))
 
         if response.status_code != 200:
             raise RuntimeError(

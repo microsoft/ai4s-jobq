@@ -7,6 +7,15 @@ CHANGELOG
 
 Fixes:
 
+* **``Workforce`` retries throttled/transient HTTP calls.**
+  ``list_jobs`` and ``get_compute_infos`` previously turned any non-200
+  response into an unrecoverable ``RuntimeError``. They now retry on
+  HTTP 429 and 5xx (500/502/503/504) up to 5 times, honoring the
+  ``Retry-After`` header (seconds or HTTP-date) and Azure's
+  ``x-ms-retry-after-ms`` hint, with exponential backoff + jitter as a
+  fallback. Fixes spurious failures when the AzureML index / ARM
+  endpoints throttle callers managing large workforces.
+
 * **Service Bus ``replace()`` no longer causes message buildup.**
   The previous implementation sent a new message without deleting the old one,
   causing the queue to grow with every task failure. ``replace()`` is now a
