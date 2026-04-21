@@ -5,6 +5,44 @@ CHANGELOG
 3.8.0 (2026-04-21)
 ------------------
 
+Features:
+
+* **``Workforce`` parallel hire / lay off / resume.**
+  Added ``parallel_hire``, ``parallel_lay_off``, ``resume``, and
+  ``parallel_resume`` methods to :class:`Workforce`, mirroring the
+  existing ``hire`` / ``lay_off`` signatures. The ``parallel_*`` variants
+  use a thread pool (``workers=8`` by default) and surface a Rich progress
+  bar when ``progress=True`` (default). Individual submission / cancel /
+  resume failures are logged as warnings and do not abort the batch.
+  ``resume`` uses the MFE execution REST API (the AzureML ARM API does
+  not expose resume). The sequential ``hire`` and ``lay_off`` methods
+  also gained a ``progress: bool = True`` keyword argument with the same
+  progress bar, so long-running sequential runs no longer appear frozen.
+
+  For thread safety, ``parallel_hire`` builds each worker from a shallow
+  copy of the prototype ``Command`` with a fresh ``environment_variables``
+  dict, so concurrent submissions no longer race on shared attributes.
+
+  ``_resume_one`` retries transient 5xx responses (including the
+  ``500``-wrapped ``503 DatabaseOverCapacity`` returned by Singularity's
+  CJP under heavy load) up to three times, honoring ``Retry-After`` /
+  ``x-ms-retry-after-ms`` with exponential-backoff fallback.
+
+  ``lay_off`` (and ``parallel_lay_off``) now prefer to cancel ``Paused``
+  jobs first (followed by ``Queued``, ``Waiting``, ``Preparing``,
+  ``Starting``, then ``Running``). Paused jobs on Singularity have
+  typically already hit the max-execution-time cap and cannot be
+  resumed, so cancelling them is the only way to free the slot; active
+  states are cancelled last to avoid discarding in-flight work.
+
+  ``hire`` and ``parallel_hire`` now tolerate the AzureML
+  ``JobPropertyImmutable`` error on our own freshly generated job names,
+  which is only reachable via the azure-core transport retry policy
+  re-sending a ``create_or_update`` whose first attempt already
+  succeeded server-side. The sequential ``hire`` loop previously had no
+  per-iteration error handling, so a single such retry race would abort
+  the entire batch; it now logs at debug and continues.
+
 Fixes:
 
 * **Service Bus ``replace()`` no longer causes message buildup.**

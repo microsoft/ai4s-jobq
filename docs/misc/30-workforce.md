@@ -69,6 +69,33 @@ To scale to a specific number of workers (this will hire/layoff workers as neede
 workforce.scale_to(1, with_layoffs=True)
 ```
 
+### Parallel scaling and paused-job resume
+
+For larger scale operations, `Workforce` exposes threaded variants that dispatch
+job submissions, cancellations, and resumes concurrently across a thread pool
+(8 workers by default) and render a Rich progress bar:
+
+```python
+workforce.parallel_hire(100)      # submit 100 workers concurrently
+workforce.parallel_lay_off(50)    # cancel 50 workers concurrently
+workforce.parallel_resume(200)    # resume up to 200 paused workers concurrently
+```
+
+The sequential `hire`, `lay_off`, and `resume` methods also render a progress
+bar by default; pass `progress=False` to suppress it.
+
+Individual failures are logged as warnings and do not abort the batch. On
+Singularity, `lay_off` and `parallel_lay_off` prefer cancelling paused jobs
+first (they can no longer be resumed once they hit the max-execution-time cap),
+then queued/waiting jobs, then active jobs.
+
+`resume` and `parallel_resume` wrap the AzureML Machine Learning Front-End
+(MFE) execution REST API (the AzureML ARM API does not expose resume). If a
+paused job has exceeded the Singularity max-execution-time cap it is
+automatically cancelled (the only way to free the slot). Transient 5xx
+responses from the MFE backend are retried in-process honoring the
+`Retry-After` / `x-ms-retry-after-ms` hints.
+
 
 ## Multiregion workforce
 
