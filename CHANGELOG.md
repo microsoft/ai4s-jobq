@@ -36,12 +36,14 @@ Features:
   states are cancelled last to avoid discarding in-flight work.
 
   ``hire`` and ``parallel_hire`` now tolerate the AzureML
-  ``JobPropertyImmutable`` error on our own freshly generated job names,
-  which is only reachable via the azure-core transport retry policy
-  re-sending a ``create_or_update`` whose first attempt already
-  succeeded server-side. The sequential ``hire`` loop previously had no
-  per-iteration error handling, so a single such retry race would abort
-  the entire batch; it now logs at debug and continues.
+  ``JobPropertyImmutable`` error on our own freshly generated job names.
+  This error is only reachable via the azure-core transport retry
+  policy re-sending a ``create_or_update`` whose first attempt already
+  succeeded server-side, so the job *is* created even though the client
+  sees a failure. The retry race is now detected and treated as
+  success. Previously the sequential ``hire`` loop had no
+  per-iteration error handling, so a single such race would abort the
+  entire batch.
 
 
 3.8.0 (2026-04-21)
