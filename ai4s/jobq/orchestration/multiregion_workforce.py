@@ -82,6 +82,10 @@ class MultiRegionWorkforce:
             )
         self.parallel_strategy: ParallelStrategy = parallel_strategy
         self._states: list[Workforce.State] | None = None
+        # Per-workforce last-known-good state, keyed by id(workforce). Used
+        # by the ``states`` property to keep a single transient failure in
+        # one region from tanking the whole tick.
+        self._last_good_state: dict[int, Workforce.State] = {}
 
         # Suppress verbose logging from Azure libraries
         logging.getLogger("azure.identity").setLevel(logging.WARNING)
@@ -92,13 +96,45 @@ class MultiRegionWorkforce:
         """
         Get the current states of all workforces.
 
+        Per-workforce failure is tolerated: if ``get_current_state`` raises
+        (e.g. a transient 5xx from AML that outlasted ``list_jobs``'s own
+        retries), we fall back to the most recent successful reading for
+        that workforce, or to a zero state if none exists yet. The run
+        proceeds with the best estimate available rather than aborting.
+
         Returns:
             A list of Workforce.State objects for all workforces.
         """
         if self.use_lazy_states and self._states is not None:
             return self._states
 
-        self._states = [workforce.get_current_state() for workforce in self.workforces]
+        states: list[Workforce.State] = []
+        for wf in self.workforces:
+            try:
+                state = wf.get_current_state()
+            except Exception as exc:
+                cached = self._last_good_state.get(id(wf))
+                if cached is not None:
+                    LOG.warning(
+                        "get_current_state failed on %s (%s); using cached state %s.",
+                        wf,
+                        exc,
+                        cached,
+                    )
+                    state = cached
+                else:
+                    LOG.warning(
+                        "get_current_state failed on %s (%s) and no cached state; "
+                        "assuming zero workers for this tick.",
+                        wf,
+                        exc,
+                    )
+                    state = Workforce.State(num_pending=0, num_running=0)
+            else:
+                self._last_good_state[id(wf)] = state
+            states.append(state)
+
+        self._states = states
         return self._states
 
     async def determine_number_of_workers(self) -> int:

@@ -417,11 +417,30 @@ class Workforce:
         while True:
             token = self._credential.get_token("https://ml.azure.com/.default")
             headers = {"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
-            response = self.session.post(
-                url,
-                json=dict(**payload, continuationToken=continuation_token),
-                headers=headers,
-            )
+            # Retry transient 5xx (nginx 503s are common during AML front-door
+            # load spikes) and 429s, honoring Retry-After with exponential
+            # backoff fallback. Exhausting retries raises so the caller can
+            # decide whether to fall back to a cached state.
+            for attempt in range(self._LIST_JOBS_MAX_RETRIES + 1):
+                response = self.session.post(
+                    url,
+                    json=dict(**payload, continuationToken=continuation_token),
+                    headers=headers,
+                )
+                if response.status_code < 500 and response.status_code != 429:
+                    break
+                if attempt == self._LIST_JOBS_MAX_RETRIES:
+                    break
+                delay = self._resume_retry_delay(response, attempt)
+                LOG.warning(
+                    "list_jobs on %s got HTTP %d; retrying in %.1fs (attempt %d/%d)",
+                    self._experiment_name,
+                    response.status_code,
+                    delay,
+                    attempt + 1,
+                    self._LIST_JOBS_MAX_RETRIES,
+                )
+                time.sleep(delay)
 
             if response.status_code != 200:
                 raise RuntimeError(
@@ -814,6 +833,13 @@ class Workforce:
     # Retrying in-process avoids forcing a full rerun of ``resume`` for every
     # transient blip.
     _RESUME_MAX_RETRIES = 3
+
+    # Max retry attempts for transient 5xx / 429 from the AzureML index
+    # endpoint backing ``list_jobs``. The nginx front-door in front of
+    # ``ml.azure.com`` returns raw HTML 503s during regional load spikes;
+    # retrying in-process is far cheaper than propagating a failure into
+    # autoscaling / status display.
+    _LIST_JOBS_MAX_RETRIES = 3
 
     @staticmethod
     def _resume_retry_delay(response: requests.Response, attempt: int) -> float:
