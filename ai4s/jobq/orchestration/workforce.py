@@ -55,12 +55,26 @@ from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
     Progress,
+    ProgressColumn,
+    TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+from rich.text import Text
 
 LOG = logging.getLogger(__name__)
+
+
+class _RateColumn(ProgressColumn):
+    """Show throughput as items/sec (blank until enough samples accrue)."""
+
+    def render(self, task) -> Text:
+        speed = task.finished_speed if task.finished else task.speed
+        if speed is None:
+            return Text("--/s", style="progress.data.speed")
+        return Text(f"{speed:.1f}/s", style="progress.data.speed")
+
 
 Status = Literal[
     "Cancel requested",
@@ -597,20 +611,11 @@ class Workforce:
             return 0, 0
         succeeded = 0
         failed = 0
-        pbar: Progress | None = (
-            Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                MofNCompleteColumn(),
-                TimeElapsedColumn(),
-                TimeRemainingColumn(),
-            )
-            if progress
-            else None
-        )
+        base_desc = f"{desc} [{self._display_name}]"
+        pbar: Progress | None = self._make_progress() if progress else None
         pbar_cm = pbar if pbar is not None else nullcontext()
         with pbar_cm, ThreadPoolExecutor(max_workers=workers) as pool:
-            task_id = pbar.add_task(desc, total=len(items)) if pbar is not None else None
+            task_id = pbar.add_task(base_desc, total=len(items)) if pbar is not None else None
             # Map future -> input item so we can label failures; fn returns None.
             futures = {pool.submit(fn, item): item for item in items}
             for fut in as_completed(futures):
@@ -622,7 +627,11 @@ class Workforce:
                     failed += 1
                     LOG.warning("%s failed for %s: %s", desc, item_label(item), exc)
                 if pbar is not None and task_id is not None:
-                    pbar.advance(task_id)
+                    pbar.update(
+                        task_id,
+                        advance=1,
+                        description=self._desc_with_counts(base_desc, succeeded, failed),
+                    )
         return succeeded, failed
 
     def _progress_iter(
@@ -642,17 +651,44 @@ class Workforce:
         if not enabled:
             yield from items
             return
-        with Progress(
+        base_desc = f"{desc} [{self._display_name}]"
+        with self._make_progress() as pbar:
+            task_id = pbar.add_task(base_desc, total=total)
+            for done, item in enumerate(items, start=1):
+                yield item
+                pbar.update(
+                    task_id,
+                    advance=1,
+                    description=self._desc_with_counts(base_desc, done, 0),
+                )
+
+    @property
+    def _display_name(self) -> str:
+        """Short identifier used in progress bars / logs."""
+        return self._experiment_name
+
+    @staticmethod
+    def _desc_with_counts(base: str, ok: int, failed: int) -> str:
+        """Append live ✓/✗ counters to a progress description."""
+        if failed:
+            return f"{base}  [green]✓{ok}[/green] [red]✗{failed}[/red]"
+        return f"{base}  [green]✓{ok}[/green]"
+
+    @staticmethod
+    def _make_progress() -> Progress:
+        """Build a Progress with unified, information-dense columns.
+
+        Columns: description | bar | m/n | % | rate | elapsed | ETA.
+        """
+        return Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             MofNCompleteColumn(),
+            TaskProgressColumn(),
+            _RateColumn(),
             TimeElapsedColumn(),
             TimeRemainingColumn(),
-        ) as pbar:
-            task_id = pbar.add_task(desc, total=total)
-            for item in items:
-                yield item
-                pbar.advance(task_id)
+        )
 
     def hire(self, n: int, batch_size: int = 200, *, progress: bool = True) -> None:
         """Adds workers to the workforce.

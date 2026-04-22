@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 import asyncio
 import logging
+import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any, Literal
 
@@ -275,8 +276,14 @@ class MultiRegionWorkforce:
         currently_running = sum([s.num_running for s in self.states])
         currently_pending = sum([s.num_pending for s in self.states])
         LOG.info(
-            f"Running {currently_running} workers and {currently_pending} pending on all workforces for queue {self.queue_name}."
+            "Tick start on %d region(s) for queue %s: %d running, %d pending (total %d).",
+            len(self.workforces),
+            self.queue_name,
+            currently_running,
+            currently_pending,
+            currently_running + currently_pending,
         )
+        tick_start = time.monotonic()
         nb_scale_to = await asyncio.gather(self.determine_number_of_workers())
         total_current = currently_running + currently_pending
 
@@ -285,15 +292,39 @@ class MultiRegionWorkforce:
             if self.parallel_strategy == "worker_parallel":
                 # Loop regions sequentially; lay off every active worker in each
                 # region via parallel_lay_off (8 threads internally).
-                for workforce, state in zip(self.workforces, self.states, strict=True):
+                total_regions = len(self.workforces)
+                for idx, (workforce, state) in enumerate(
+                    zip(self.workforces, self.states, strict=True), start=1
+                ):
                     total = state.num_running + state.num_pending
                     if total <= 0:
+                        LOG.info(
+                            "[%d/%d] %s: already at 0, skipping.",
+                            idx,
+                            total_regions,
+                            workforce,
+                        )
                         continue
-                    LOG.info(f"Scaling {workforce} to 0 (laying off {total}).")
+                    LOG.info(
+                        "[%d/%d] %s: laying off %d workers.",
+                        idx,
+                        total_regions,
+                        workforce,
+                        total,
+                    )
+                    region_start = time.monotonic()
                     try:
                         workforce.parallel_lay_off(total)
                     except Exception:
                         LOG.exception("scaling down of workers failed on %s.", workforce)
+                    else:
+                        LOG.info(
+                            "[%d/%d] %s: lay-off complete in %.1fs.",
+                            idx,
+                            total_regions,
+                            workforce,
+                            time.monotonic() - region_start,
+                        )
             else:  # region_parallel (legacy)
                 with ThreadPoolExecutor() as executor:
 
@@ -312,6 +343,11 @@ class MultiRegionWorkforce:
                             future.result()
                         except Exception:
                             LOG.exception("scaling down of workers failed.")
+            LOG.info(
+                "Tick done (scale-to-zero) across %d region(s) in %.1fs.",
+                len(self.workforces),
+                time.monotonic() - tick_start,
+            )
             return True
 
         # Handle scaling
@@ -373,14 +409,31 @@ class MultiRegionWorkforce:
         if self.parallel_strategy == "worker_parallel":
             # Sequential across regions; each region uses parallel_hire
             # (8-thread pool) internally.
-            for workforce, n in zip(self.workforces, hiring_distribution, strict=True):
-                if n <= 0:
-                    continue
-                LOG.info(f"Hiring {n} workers on cluster {workforce}.")
+            active = [
+                (wf, n) for wf, n in zip(self.workforces, hiring_distribution, strict=True) if n > 0
+            ]
+            total_regions = len(active)
+            for idx, (workforce, n) in enumerate(active, start=1):
+                LOG.info(
+                    "[%d/%d] %s: hiring %d workers.",
+                    idx,
+                    total_regions,
+                    workforce,
+                    n,
+                )
+                region_start = time.monotonic()
                 try:
                     workforce.parallel_hire(n)
                 except Exception:
                     LOG.exception("hiring of workers failed on %s.", workforce)
+                else:
+                    LOG.info(
+                        "[%d/%d] %s: hire complete in %.1fs.",
+                        idx,
+                        total_regions,
+                        workforce,
+                        time.monotonic() - region_start,
+                    )
         else:  # region_parallel (legacy)
             with ThreadPoolExecutor() as executor:
 
@@ -407,6 +460,13 @@ class MultiRegionWorkforce:
         # running pool from bleeding away on Singularity (max-exec-time).
         self._resume_all_regions()
 
+        LOG.info(
+            "Tick done across %d region(s) in %.1fs: hired %d/%d workers.",
+            len(self.workforces),
+            time.monotonic() - tick_start,
+            sum(hiring_distribution),
+            total_to_hire,
+        )
         return sum(hiring_distribution) == total_to_hire
 
     def _apply_uniform_change(self, delta: int) -> None:
@@ -431,11 +491,30 @@ class MultiRegionWorkforce:
                     workforce.lay_off(-delta)
 
         if self.parallel_strategy == "worker_parallel":
-            for wf in self.workforces:
+            total_regions = len(self.workforces)
+            verb = "hiring" if delta > 0 else "laying off"
+            for idx, wf in enumerate(self.workforces, start=1):
+                LOG.info(
+                    "[%d/%d] %s: %s %d (manual).",
+                    idx,
+                    total_regions,
+                    wf,
+                    verb,
+                    abs(delta),
+                )
+                region_start = time.monotonic()
                 try:
                     _apply(wf)
                 except Exception:
                     LOG.exception("manual hire/lay-off failed on %s.", wf)
+                else:
+                    LOG.info(
+                        "[%d/%d] %s: done in %.1fs.",
+                        idx,
+                        total_regions,
+                        wf,
+                        time.monotonic() - region_start,
+                    )
         else:  # region_parallel
             with ThreadPoolExecutor() as executor:
                 futs = [executor.submit(_apply, wf) for wf in self.workforces]
@@ -455,19 +534,44 @@ class MultiRegionWorkforce:
         benefits from intra-region threading even when region_parallel is
         selected for hire/lay-off.
         """
-        for workforce in self.workforces:
+        total_regions = len(self.workforces)
+        total_resumed = 0
+        for idx, workforce in enumerate(self.workforces, start=1):
             try:
                 state = workforce.get_detailed_state()
             except Exception:
-                LOG.exception("failed to query paused workers on %s.", workforce)
+                LOG.exception(
+                    "[%d/%d] %s: failed to query paused workers; skipping resume.",
+                    idx,
+                    total_regions,
+                    workforce,
+                )
                 continue
             if state.num_paused <= 0:
                 continue
-            LOG.info(f"Resuming {state.num_paused} paused workers on cluster {workforce}.")
+            LOG.info(
+                "[%d/%d] %s: resuming %d paused workers.",
+                idx,
+                total_regions,
+                workforce,
+                state.num_paused,
+            )
+            region_start = time.monotonic()
             try:
                 workforce.parallel_resume(state.num_paused)
             except Exception:
                 LOG.exception("resume of paused workers failed on %s.", workforce)
+            else:
+                total_resumed += state.num_paused
+                LOG.info(
+                    "[%d/%d] %s: resume complete in %.1fs.",
+                    idx,
+                    total_regions,
+                    workforce,
+                    time.monotonic() - region_start,
+                )
+        if total_resumed:
+            LOG.info("Resumed %d paused workers across %d region(s).", total_resumed, total_regions)
 
     async def run_forever(self, sleep_time: int = 60):
         """
