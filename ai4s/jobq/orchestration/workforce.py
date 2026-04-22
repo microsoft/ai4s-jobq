@@ -592,6 +592,7 @@ class Workforce:
         pbar_cm = pbar if pbar is not None else nullcontext()
         with pbar_cm, ThreadPoolExecutor(max_workers=workers) as pool:
             task_id = pbar.add_task(desc, total=len(items)) if pbar is not None else None
+            # Map future -> input item so we can label failures; fn returns None.
             futures = {pool.submit(fn, item): item for item in items}
             for fut in as_completed(futures):
                 item = futures[fut]
