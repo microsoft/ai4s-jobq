@@ -3,11 +3,13 @@
 import asyncio
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Literal
 
 from ai4s.jobq import JobQ
 from ai4s.jobq.auth import get_token_credential
 from ai4s.jobq.orchestration.workforce import Workforce
+
+ParallelStrategy = Literal["worker_parallel", "region_parallel"]
 
 LOG = logging.getLogger(__name__)
 
@@ -46,6 +48,7 @@ class MultiRegionWorkforce:
         num_workers: int = 1,
         max_num_workers: int = MAX_WORKERS_LIMIT,
         use_lazy_states: bool = False,
+        parallel_strategy: ParallelStrategy = "worker_parallel",
     ):
         """
         Initialize the MultiRegionWorkforce.
@@ -66,6 +69,18 @@ class MultiRegionWorkforce:
         self.credential = get_token_credential()
         self.max_num_workers = max_num_workers
         self.use_lazy_states = use_lazy_states
+        # worker_parallel (default): loop regions sequentially, each region uses
+        #   Workforce.parallel_hire / parallel_lay_off (8 threads internally).
+        #   Well-suited to uneven distributions: a region that needs 5 hires does not
+        #   block one that needs 500.
+        # region_parallel (legacy): fan out across regions via a ThreadPoolExecutor,
+        #   each region uses the sequential Workforce.hire / lay_off.
+        if parallel_strategy not in ("worker_parallel", "region_parallel"):
+            raise ValueError(
+                f"Invalid parallel_strategy {parallel_strategy!r}; "
+                "expected 'worker_parallel' or 'region_parallel'."
+            )
+        self.parallel_strategy: ParallelStrategy = parallel_strategy
         self._states: list[Workforce.State] | None = None
 
         # Suppress verbose logging from Azure libraries
@@ -171,25 +186,39 @@ class MultiRegionWorkforce:
             carry += avg_num_to_layoff - planned_to_layoff
             layoff_distribution[index] = planned_to_layoff
 
-        # layoff workers in parallel for better performance
-        with ThreadPoolExecutor() as executor:
-
-            def layoff_helper(workforce: Workforce, num_workers_to_layoff: int):
-                if num_workers_to_layoff > 0:
-                    LOG.info(f"Stopping {num_workers_to_layoff} workers on cluster {workforce}.")
-                    workforce.lay_off(num_workers_to_layoff)
-
-            layoff_futures: list[Future[Any]] = [
-                executor.submit(layoff_helper, workforce, num_workers_to_hire)
-                for workforce, num_workers_to_hire in zip(
-                    self.workforces, layoff_distribution, strict=True
-                )
-            ]
-            for future in as_completed(layoff_futures):
+        if self.parallel_strategy == "worker_parallel":
+            # Sequential across regions; each region uses parallel_lay_off
+            # (8-thread pool) internally. Uneven distributions don't block
+            # the whole call since small regions finish almost instantly.
+            for workforce, n in zip(self.workforces, layoff_distribution, strict=True):
+                if n <= 0:
+                    continue
+                LOG.info(f"Stopping {n} workers on cluster {workforce}.")
                 try:
-                    future.result()
+                    workforce.parallel_lay_off(n)
                 except Exception:
-                    LOG.exception("layoff of queued workers failed.")
+                    LOG.exception("layoff of queued workers failed on %s.", workforce)
+        else:  # region_parallel (legacy)
+            with ThreadPoolExecutor() as executor:
+
+                def layoff_helper(workforce: Workforce, num_workers_to_layoff: int):
+                    if num_workers_to_layoff > 0:
+                        LOG.info(
+                            f"Stopping {num_workers_to_layoff} workers on cluster {workforce}."
+                        )
+                        workforce.lay_off(num_workers_to_layoff)
+
+                layoff_futures: list[Future[Any]] = [
+                    executor.submit(layoff_helper, workforce, num_workers_to_hire)
+                    for workforce, num_workers_to_hire in zip(
+                        self.workforces, layoff_distribution, strict=True
+                    )
+                ]
+                for future in as_completed(layoff_futures):
+                    try:
+                        future.result()
+                    except Exception:
+                        LOG.exception("layoff of queued workers failed.")
 
         return layoff_distribution
 
@@ -215,25 +244,38 @@ class MultiRegionWorkforce:
         nb_scale_to = await asyncio.gather(self.determine_number_of_workers())
         total_current = currently_running + currently_pending
 
-        # Handle scale to zero case - do this in parallel for efficiency
+        # Handle scale to zero case
         if scale_to_zero:
-            with ThreadPoolExecutor() as executor:
-
-                def scale_to_helper(workforce: Workforce, num_workers: int):
-                    workforce.scale_to(num_workers, with_layoffs=True)
-                    LOG.info(f"Scaled {workforce} to {num_workers}.")
-
-                scale_to_futures: list[Future[Any]] = [
-                    executor.submit(scale_to_helper, workforce, num_workers_to_hire)
-                    for workforce, num_workers_to_hire in zip(
-                        self.workforces, [0] * len(self.workforces), strict=True
-                    )
-                ]
-                for future in as_completed(scale_to_futures):
+            if self.parallel_strategy == "worker_parallel":
+                # Loop regions sequentially; lay off every active worker in each
+                # region via parallel_lay_off (8 threads internally).
+                for workforce, state in zip(self.workforces, self.states, strict=True):
+                    total = state.num_running + state.num_pending
+                    if total <= 0:
+                        continue
+                    LOG.info(f"Scaling {workforce} to 0 (laying off {total}).")
                     try:
-                        future.result()
+                        workforce.parallel_lay_off(total)
                     except Exception:
-                        LOG.exception("scaling down of workers failed.")
+                        LOG.exception("scaling down of workers failed on %s.", workforce)
+            else:  # region_parallel (legacy)
+                with ThreadPoolExecutor() as executor:
+
+                    def scale_to_helper(workforce: Workforce, num_workers: int):
+                        workforce.scale_to(num_workers, with_layoffs=True)
+                        LOG.info(f"Scaled {workforce} to {num_workers}.")
+
+                    scale_to_futures: list[Future[Any]] = [
+                        executor.submit(scale_to_helper, workforce, num_workers_to_hire)
+                        for workforce, num_workers_to_hire in zip(
+                            self.workforces, [0] * len(self.workforces), strict=True
+                        )
+                    ]
+                    for future in as_completed(scale_to_futures):
+                        try:
+                            future.result()
+                        except Exception:
+                            LOG.exception("scaling down of workers failed.")
             return True
 
         # Handle scaling
@@ -241,11 +283,7 @@ class MultiRegionWorkforce:
         if manual_hire is not None:
             LOG.info(f"Manual hire set to {manual_hire}. Overwriting autoscaling.")
             total_to_hire = manual_hire
-            for workforce in self.workforces:
-                if manual_hire > 0:
-                    workforce.hire(manual_hire)
-                else:
-                    workforce.lay_off(-manual_hire)
+            self._apply_uniform_change(manual_hire)
             return True
 
         LOG.info(f"Scaling to {max(nb_scale_to[0], 0)}, need to hire {total_to_hire}.")
@@ -296,27 +334,104 @@ class MultiRegionWorkforce:
                 f"Not enough available workers found on clusters {self.workforces}. Scaling up {sum(hiring_distribution)}, but should have scaled {total_to_hire}."
             )
 
-        # Hire workers in parallel for better performance
-        with ThreadPoolExecutor() as executor:
-
-            def hiring_helper(workforce: Workforce, num_workers_to_hire: int):
-                if num_workers_to_hire > 0:
-                    LOG.info(f"Hiring {num_workers_to_hire} workers on cluster {workforce}.")
-                    workforce.hire(num_workers_to_hire)
-
-            hiring_futures: list[Future[Any]] = [
-                executor.submit(hiring_helper, workforce, num_workers_to_hire)
-                for workforce, num_workers_to_hire in zip(
-                    self.workforces, hiring_distribution, strict=True
-                )
-            ]
-            for future in as_completed(hiring_futures):
+        if self.parallel_strategy == "worker_parallel":
+            # Sequential across regions; each region uses parallel_hire
+            # (8-thread pool) internally.
+            for workforce, n in zip(self.workforces, hiring_distribution, strict=True):
+                if n <= 0:
+                    continue
+                LOG.info(f"Hiring {n} workers on cluster {workforce}.")
                 try:
-                    future.result()
+                    workforce.parallel_hire(n)
                 except Exception:
-                    LOG.exception("hiring of workers failed.")
+                    LOG.exception("hiring of workers failed on %s.", workforce)
+        else:  # region_parallel (legacy)
+            with ThreadPoolExecutor() as executor:
+
+                def hiring_helper(workforce: Workforce, num_workers_to_hire: int):
+                    if num_workers_to_hire > 0:
+                        LOG.info(f"Hiring {num_workers_to_hire} workers on cluster {workforce}.")
+                        workforce.hire(num_workers_to_hire)
+
+                hiring_futures: list[Future[Any]] = [
+                    executor.submit(hiring_helper, workforce, num_workers_to_hire)
+                    for workforce, num_workers_to_hire in zip(
+                        self.workforces, hiring_distribution, strict=True
+                    )
+                ]
+                for future in as_completed(hiring_futures):
+                    try:
+                        future.result()
+                    except Exception:
+                        LOG.exception("hiring of workers failed.")
+
+        # Resume any paused workers in every region at the end of each tick.
+        # parallel_resume is a no-op when nothing is paused, so calling it
+        # unconditionally is cheap (one list_jobs per region) and keeps the
+        # running pool from bleeding away on Singularity (max-exec-time).
+        self._resume_all_regions()
 
         return sum(hiring_distribution) == total_to_hire
+
+    def _apply_uniform_change(self, delta: int) -> None:
+        """Apply the same hire/lay-off delta to every region, honoring parallel_strategy.
+
+        Used by ``manual_hire``: positive delta hires ``delta`` on each region,
+        negative delta lays off ``-delta`` on each region.
+        """
+        if delta == 0:
+            return
+
+        def _apply(workforce: Workforce) -> None:
+            if self.parallel_strategy == "worker_parallel":
+                if delta > 0:
+                    workforce.parallel_hire(delta)
+                else:
+                    workforce.parallel_lay_off(-delta)
+            else:  # region_parallel dispatches per-region; inside a region use sequential
+                if delta > 0:
+                    workforce.hire(delta)
+                else:
+                    workforce.lay_off(-delta)
+
+        if self.parallel_strategy == "worker_parallel":
+            for wf in self.workforces:
+                try:
+                    _apply(wf)
+                except Exception:
+                    LOG.exception("manual hire/lay-off failed on %s.", wf)
+        else:  # region_parallel
+            with ThreadPoolExecutor() as executor:
+                futs = [executor.submit(_apply, wf) for wf in self.workforces]
+                for fut in as_completed(futs):
+                    try:
+                        fut.result()
+                    except Exception:
+                        LOG.exception("manual hire/lay-off failed.")
+
+    def _resume_all_regions(self) -> None:
+        """Resume paused workers in every region (sequential across regions).
+
+        Each region uses ``parallel_resume`` (8 threads internally). Called
+        at the end of every :meth:`run` tick; cheap when nothing is paused.
+        This always uses the worker_parallel pattern regardless of
+        :attr:`parallel_strategy` because resume is best-effort per-job and
+        benefits from intra-region threading even when region_parallel is
+        selected for hire/lay-off.
+        """
+        for workforce in self.workforces:
+            try:
+                state = workforce.get_detailed_state()
+            except Exception:
+                LOG.exception("failed to query paused workers on %s.", workforce)
+                continue
+            if state.num_paused <= 0:
+                continue
+            LOG.info(f"Resuming {state.num_paused} paused workers on cluster {workforce}.")
+            try:
+                workforce.parallel_resume(state.num_paused)
+            except Exception:
+                LOG.exception("resume of paused workers failed on %s.", workforce)
 
     async def run_forever(self, sleep_time: int = 60):
         """
