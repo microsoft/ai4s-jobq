@@ -2,7 +2,7 @@ CHANGELOG
 =========
 
 
-3.8.0 (2026-04-21)
+3.9.0 (unreleased)
 ------------------
 
 Features:
@@ -42,6 +42,10 @@ Features:
   succeeded server-side. The sequential ``hire`` loop previously had no
   per-iteration error handling, so a single such retry race would abort
   the entire batch; it now logs at debug and continues.
+
+
+3.8.0 (2026-04-21)
+------------------
 
 Fixes:
 
