@@ -32,6 +32,16 @@ class WorkerCanceled(Exception):  # noqa: N818 — public API name
     """Raised when a worker is canceled."""
 
 
+class LockLostError(Exception):
+    """Raised when the message lock is lost during task execution.
+
+    This is an infrastructure event (for example, the lock expired or another
+    client completed the message) — **not** a task failure.  Callers should
+    handle this separately from task failures so that it does not count toward
+    consecutive-failure thresholds.
+    """
+
+
 @dataclass
 class Response:
     is_success: bool

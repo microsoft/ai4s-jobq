@@ -33,7 +33,15 @@ from contextlib import AsyncExitStack, suppress
 from functools import wraps
 from itertools import chain
 
-from ai4s.jobq import EmptyQueue, JobQ, JobQFuture, Response, WorkerCanceled, WorkSpecification
+from ai4s.jobq import (
+    EmptyQueue,
+    JobQ,
+    JobQFuture,
+    LockLostError,
+    Response,
+    WorkerCanceled,
+    WorkSpecification,
+)
 from ai4s.jobq.logging_utils import (
     flush_app_insights,
     set_context_dimensions,
@@ -633,6 +641,12 @@ async def launch_workers(
                                     "Maximum number of consecutive failures reached. Exiting."
                                 )
                                 raise TooManyFailuresException
+                    except LockLostError:
+                        LOG.info(
+                            "Worker %d: lock lost — retrying (not counted as failure).",
+                            idx,
+                        )
+                        continue
                     except WorkerCanceled:
                         await flush_app_insights()
                         LOG.info("Worker %d canceled.", idx)

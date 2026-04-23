@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 
-from ai4s.jobq.entities import EmptyQueue
+from ai4s.jobq.entities import EmptyQueue, LockLostError
 from ai4s.jobq.jobq import JobQ, _is_async_callable
 
 
@@ -65,11 +65,11 @@ async def test_heartbeat_lock_lost(async_queue, azurite_connstr):
 
         backend.queue_client.update_message = sabotaged_update
 
-        success = await q_worker.pull_and_execute(
-            callback, visibility_timeout=timedelta(seconds=2), with_heartbeat=True
-        )
+        with pytest.raises(LockLostError):
+            await q_worker.pull_and_execute(
+                callback, visibility_timeout=timedelta(seconds=2), with_heartbeat=True
+            )
 
-    assert not success, "Should return False when lock is lost"
     assert callback_cancelled.is_set(), "Callback should have been cancelled"
 
     # The message should NOT have been deleted or deadlettered — it must still

@@ -24,7 +24,7 @@ from azure.core.credentials_async import AsyncTokenCredential
 
 from ai4s.jobq import JobQ, __version__
 from ai4s.jobq.auth import get_token_credential
-from ai4s.jobq.entities import EmptyQueue, WorkerCanceled
+from ai4s.jobq.entities import EmptyQueue, LockLostError, WorkerCanceled
 from ai4s.jobq.logging_utils import JobQRichHandler, setup_logging
 from ai4s.jobq.orchestration import WorkSpecification, batch_enqueue, get_results
 from ai4s.jobq.orchestration.manager import launch_workers
@@ -542,6 +542,8 @@ async def pull(
                 LOG.info("Worker canceled.")
             except EmptyQueue:
                 LOG.error("Queue is empty.")
+            except LockLostError:
+                LOG.warning("Lock lost — task will be retried by another worker.")
 
 
 @main.command("worker")

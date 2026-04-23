@@ -22,7 +22,7 @@ from typing import (
 import azure.core.exceptions
 from azure.core.credentials_async import AsyncTokenCredential
 
-from ai4s.jobq.entities import Response, Task, WorkerCanceled
+from ai4s.jobq.entities import LockLostError, Response, Task, WorkerCanceled
 
 from .backend.common import JobQBackend, JobQBackendWorker
 
@@ -404,7 +404,7 @@ class JobQ:
                         "event": "task_lock_lost",
                     },
                 )
-                return False
+                raise LockLostError(f"Lock lost for task {task.id} after {duration:.1f}s")
 
             if execution_was_succesful:
                 LOG.info(
