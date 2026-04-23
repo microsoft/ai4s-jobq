@@ -16,6 +16,7 @@ import aiohttp.client_exceptions
 import psutil
 import rich.progress
 from azure.core.exceptions import ServiceResponseError
+from rich.logging import RichHandler
 from tenacity import RetryError
 
 try:
@@ -65,8 +66,6 @@ def _get_rich_console() -> "rich.console.Console | None":
     are properly interleaved with the live progress display instead of being
     overwritten by it.
     """
-    from rich.logging import RichHandler
-
     for handler in logging.root.handlers:
         if isinstance(handler, RichHandler):
             return handler.console

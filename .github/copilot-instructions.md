@@ -122,3 +122,4 @@ information in commit messages, PR descriptions, comments, or code:
 - Python 3.10+ required. Type hints are used throughout; mypy is configured with `strict_optional = true`.
 - Logging uses `logging.getLogger("ai4s.jobq")` (or `__name__` in submodules).
 - `asyncclick` (not standard `click`) for all CLI commands.
+- CHANGELOG entries for unreleased versions may include today's or a future date (the release date). Do not replace such dates with "(unreleased)".
