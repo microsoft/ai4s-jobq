@@ -38,7 +38,16 @@ class MultiRegionWorkforce:
         credential: Azure credential for authentication.
         max_num_workers: Maximum number of workers to scale up to (defaults to MAX_WORKERS_LIMIT).
         use_lazy_states: Whether to cache workforce states between calls.
-        with_layoffs: Whether to allow layoffs when scaling down.
+        parallel_strategy: How parallelism is arranged across regions.
+            ``"worker_parallel"`` (default) loops regions sequentially and uses
+            ``Workforce.parallel_hire`` / ``parallel_lay_off`` within each region.
+            ``"region_parallel"`` (legacy) fans regions out on a thread pool and
+            uses the sequential ``Workforce.hire`` / ``lay_off`` within each.
+        batched_delay_in_hiring: When True (default), ``worker_parallel`` hires
+            are dispatched via ``Workforce.parallel_hire_in_batches`` (batches
+            of 512 with a 10 s sleep between batches) instead of a single
+            ``parallel_hire`` burst. Avoids overloading the AzureML MFE /
+            container registry on large multi-region hires.
     """
 
     def __init__(
@@ -63,7 +72,13 @@ class MultiRegionWorkforce:
             num_workers: Number of workers per job (defaults to 1).
             max_num_workers: Maximum number of workers to scale up to (defaults to MAX_WORKERS_LIMIT).
             use_lazy_states: Whether to cache workforce states between calls.
-            batched_delay_in_hiring: Whether to use batched delay when hiring workers (default True).
+            parallel_strategy: ``"worker_parallel"`` (default) or ``"region_parallel"``.
+                See class docstring for semantics.
+            batched_delay_in_hiring: When True (default), dispatch
+                ``worker_parallel`` hires via
+                ``Workforce.parallel_hire_in_batches`` to avoid MFE / container
+                registry throttling on large hires. Only affects the
+                ``worker_parallel`` strategy.
         """
         self.workforces = workforces
         self.num_workers = num_workers
