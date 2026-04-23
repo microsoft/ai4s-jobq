@@ -1026,8 +1026,28 @@ class Workforce:
 
         token = self._credential.get_token("https://management.core.windows.net/.default")
         headers = {"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
-        response = self.session.get(url, headers=headers)
 
+        # Retry transient 5xx / 429 with Retry-After honoring, mirroring
+        # list_jobs. ARM get-compute can also blip under regional load.
+        response: requests.Response | None = None
+        for attempt in range(self._LIST_JOBS_MAX_RETRIES + 1):
+            response = self.session.get(url, headers=headers)
+            if response.status_code < 500 and response.status_code != 429:
+                break
+            if attempt == self._LIST_JOBS_MAX_RETRIES:
+                break
+            delay = self._resume_retry_delay(response, attempt)
+            LOG.warning(
+                "get_compute_infos on %s got HTTP %d; retrying in %.1fs (attempt %d/%d)",
+                self._experiment_name,
+                response.status_code,
+                delay,
+                attempt + 1,
+                self._LIST_JOBS_MAX_RETRIES,
+            )
+            time.sleep(delay)
+
+        assert response is not None  # loop always assigns
         if response.status_code != 200:
             raise RuntimeError(
                 f"Failed to fetch cluster information {compute_name}: {response.text}"

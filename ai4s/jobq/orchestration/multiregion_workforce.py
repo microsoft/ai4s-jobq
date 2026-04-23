@@ -109,15 +109,21 @@ class MultiRegionWorkforce:
         if self.use_lazy_states and self._states is not None:
             return self._states
 
+        LOG.info("Fetching state for %d region(s)...", len(self.workforces))
+        fetch_start = time.monotonic()
         states: list[Workforce.State] = []
-        for wf in self.workforces:
+        total_regions = len(self.workforces)
+        for idx, wf in enumerate(self.workforces, start=1):
+            region_start = time.monotonic()
             try:
                 state = wf.get_current_state()
             except Exception as exc:
                 cached = self._last_good_state.get(id(wf))
                 if cached is not None:
                     LOG.warning(
-                        "get_current_state failed on %s (%s); using cached state %s.",
+                        "[%d/%d] %s: get_current_state failed (%s); using cached %s.",
+                        idx,
+                        total_regions,
                         wf,
                         exc,
                         cached,
@@ -125,16 +131,32 @@ class MultiRegionWorkforce:
                     state = cached
                 else:
                     LOG.warning(
-                        "get_current_state failed on %s (%s) and no cached state; "
-                        "assuming zero workers for this tick.",
+                        "[%d/%d] %s: get_current_state failed (%s) and no cache; "
+                        "assuming zero workers.",
+                        idx,
+                        total_regions,
                         wf,
                         exc,
                     )
                     state = Workforce.State(num_pending=0, num_running=0)
             else:
                 self._last_good_state[id(wf)] = state
+                LOG.info(
+                    "[%d/%d] %s: state running=%d pending=%d (%.1fs).",
+                    idx,
+                    total_regions,
+                    wf,
+                    state.num_running,
+                    state.num_pending,
+                    time.monotonic() - region_start,
+                )
             states.append(state)
 
+        LOG.info(
+            "State fetched for %d region(s) in %.1fs.",
+            total_regions,
+            time.monotonic() - fetch_start,
+        )
         self._states = states
         return self._states
 
@@ -379,10 +401,41 @@ class MultiRegionWorkforce:
                 return False
 
         # Calculate available capacity for each workforce
+        LOG.info("Querying available hiring capacity for %d region(s)...", len(self.workforces))
+        capacity_start = time.monotonic()
         available_for_hire_list = []
-        for workforce, current_state in zip(self.workforces, self.states, strict=True):
-            available_for_hire = workforce.get_available_to_hire(current_state=current_state)
+        total_regions = len(self.workforces)
+        for idx, (workforce, current_state) in enumerate(
+            zip(self.workforces, self.states, strict=True), start=1
+        ):
+            region_start = time.monotonic()
+            try:
+                available_for_hire = workforce.get_available_to_hire(current_state=current_state)
+            except Exception as exc:
+                LOG.warning(
+                    "[%d/%d] %s: get_available_to_hire failed (%s); assuming 0 capacity.",
+                    idx,
+                    total_regions,
+                    workforce,
+                    exc,
+                )
+                available_for_hire = 0
+            else:
+                LOG.info(
+                    "[%d/%d] %s: available=%d (%.1fs).",
+                    idx,
+                    total_regions,
+                    workforce,
+                    available_for_hire,
+                    time.monotonic() - region_start,
+                )
             available_for_hire_list.append(available_for_hire)
+        LOG.info(
+            "Capacity query for %d region(s) done in %.1fs (total available %d).",
+            total_regions,
+            time.monotonic() - capacity_start,
+            sum(max(0, x) for x in available_for_hire_list),
+        )
 
         # Distribute hiring across workforces
         hiring_distribution: list[int] = [0] * len(self.workforces)
