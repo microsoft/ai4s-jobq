@@ -205,25 +205,9 @@ async def run_cmd_and_log_outputs(
     #
     # NOTE: asyncio's ``process.wait()`` waits for the transport to close,
     # which in turn waits for all pipe data to be consumed — so it would hang
-    # just like the stream readers.  For that reason we poll for the raw OS
-    # exit status separately using ``os.waitpid`` with WNOHANG.
+    # just like the stream readers.  We poll ``process.returncode`` instead,
+    # which is set by asyncio's child watcher independently of pipe state.
     DRAIN_TIMEOUT = 5  # seconds
-
-    async def _poll_for_exit() -> int:
-        """Poll until the process has exited, without depending on pipe EOF."""
-        while True:
-            try:
-                pid_result, status = os.waitpid(process.pid, os.WNOHANG)
-            except ChildProcessError:
-                # Already reaped by asyncio's child watcher.
-                code = process.returncode
-                return code if code is not None else 1
-            if pid_result != 0:
-                if os.WIFEXITED(status):
-                    return os.WEXITSTATUS(status)
-                # killed by signal
-                return -os.WTERMSIG(status)
-            await asyncio.sleep(0.1)
 
     read_task = asyncio.ensure_future(
         asyncio.gather(
@@ -232,17 +216,19 @@ async def run_cmd_and_log_outputs(
             return_exceptions=True,
         )
     )
-    exit_task = asyncio.ensure_future(_poll_for_exit())
     try:
-        # Wait until *either* the streams close (normal case) or the process
-        # exits (background-child case).
-        done, _pending = await asyncio.wait(
-            [read_task, exit_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        if exit_task in done:
-            ret = exit_task.result()
-            # Process exited but streams still open — drain briefly, then cancel.
+        # Poll for process exit without depending on pipe EOF.
+        while process.returncode is None:
+            if read_task.done():
+                # Streams closed first (normal case) — just wait for the
+                # child watcher to set returncode.
+                ret = await process.wait()
+                break
+            await asyncio.sleep(0.1)
+        else:
+            ret = process.returncode
+            # Process exited but streams may still be open (orphaned child
+            # inherited the pipes).  Drain briefly, then cancel.
             if not read_task.done():
                 try:
                     await asyncio.wait_for(asyncio.shield(read_task), timeout=DRAIN_TIMEOUT)
@@ -257,16 +243,11 @@ async def run_cmd_and_log_outputs(
                     read_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await read_task
-        else:
-            # Streams closed first (normal case) — process should be done or
-            # nearly done.
-            ret = await exit_task
     except Exception:
         log(logging.DEBUG, "Error waiting for process %d", process.pid)
-        for t in (read_task, exit_task):
-            t.cancel()
-            with suppress(asyncio.CancelledError, ChildProcessError):
-                await t
+        read_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await read_task
         process.kill()
         raise
     finally:
