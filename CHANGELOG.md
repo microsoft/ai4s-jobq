@@ -60,6 +60,20 @@ Features:
   the running pool from bleeding away on Singularity where jobs hit
   max-execution-time caps between ticks.
 
+* **``Workforce.parallel_hire_in_batches`` and MRW
+  ``batched_delay_in_hiring`` flag.**
+  New ``Workforce.parallel_hire_in_batches(n, batch_size=512,
+  delay=10.0)`` method splits ``n`` hires into fixed-size batches,
+  dispatches each batch through ``parallel_hire`` (preserving the
+  existing first-hire artifact priming, 8-thread pool, and progress
+  bar), and sleeps ``delay`` seconds between batches. Avoids
+  overloading the AzureML MFE / container registry on very large
+  hires. ``MultiRegionWorkforce`` gained a ``batched_delay_in_hiring:
+  bool = True`` constructor argument; when set (default), every MRW hire
+  path routes through ``parallel_hire_in_batches`` instead of a
+  single ``parallel_hire`` burst. Lay-off and resume paths are
+  unchanged.
+
 Fixes / resilience:
 
 * **``Workforce.list_jobs`` retries transient 5xx / 429 responses.**
@@ -70,6 +84,22 @@ Fixes / resilience:
   fallback (same helper already used by ``_resume_one``). Previously
   any non-200 response aborted ``get_current_state`` / ``get_detailed_state``
   / scaling with a ``RuntimeError``.
+
+* **``Workforce`` retries network-level request errors.**
+  A new ``_request_with_retry`` helper wraps ``list_jobs`` and
+  ``get_compute_infos`` so transient ``requests.RequestException``
+  errors (DNS ``NameResolutionError``, connection resets, timeouts)
+  are now retried with the same Retry-After / back-off logic as HTTP
+  5xx / 429. Previously these errors bypassed the HTTP retry loop and
+  propagated up to the per-region fallback on the first failure.
+
+* **``Workforce.get_compute_infos`` retries and is timed.**
+  ``get_available_to_hire`` calls the ARM management API, which has
+  been observed to stall silently for tens of seconds on heavily
+  loaded workspaces. ``get_compute_infos`` now goes through the same
+  retry helper and MRW logs per-region wall-clock for the capacity
+  query, so ticks no longer appear to hang between "Scaling to X"
+  and the first hire.
 
 * **``MultiRegionWorkforce.states`` tolerates per-region failures.**
   If ``get_current_state`` raises for a single region (for example, retries
@@ -91,9 +121,10 @@ Internal / observability:
 
 * **Per-region MRW logs.**
   ``run()`` now logs a ``Tick start`` line, marks every region with
-  ``[i/N] name:``, emits per-region wall-clock timings, and closes
-  each tick with a summary (``Tick done across K region(s) in Ys:
-  hired X/Y``). The same structure applies to scale-to-zero, manual
+  ``[i/N] name:``, emits per-region wall-clock timings for state
+  fetch, capacity query, hire, and resume phases, and closes each
+  tick with a summary (``Tick done across K region(s) in Ys: hired
+  X/Y``). The same structure applies to scale-to-zero, manual
   hire / lay-off, and the paused-worker resume pass.
 
 
