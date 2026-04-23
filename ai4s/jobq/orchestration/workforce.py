@@ -742,6 +742,67 @@ class Workforce:
         if failed:
             LOG.warning("%d/%d hires failed", failed, remaining)
 
+    def parallel_hire_in_batches(
+        self,
+        n: int,
+        batch_size: int = 512,
+        delay: float = 10.0,
+        *,
+        workers: int = 8,
+        progress: bool = True,
+    ) -> None:
+        """Hire ``n`` workers in batches, sleeping ``delay`` seconds between batches.
+
+        Wraps :meth:`parallel_hire` to cap the in-flight burst at
+        ``batch_size`` submissions. AzureML's container-registry and
+        MFE job-submission endpoints throttle aggressively when
+        thousands of ``create_or_update`` calls land back-to-back from
+        the same workspace; spacing batches with a short sleep avoids
+        that throttling without sacrificing intra-batch parallelism.
+
+        The first call still primes the code / environment upload (via
+        :meth:`parallel_hire` → :meth:`hire(1)`), so later batches reuse
+        the cached artifact in blob storage.
+
+        Args:
+            n: Total number of workers to hire. Non-positive values are a no-op.
+            batch_size: Maximum workers per batch (default 512).
+            delay: Seconds to sleep between batches (default 10.0). Skipped
+                after the final batch.
+            workers: Thread-pool size passed through to each
+                :meth:`parallel_hire` call (default 8).
+            progress: Show a Rich progress bar per batch (default True).
+        """
+        if n <= 0:
+            return
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+
+        num_batches = (n + batch_size - 1) // batch_size
+        hired = 0
+        for batch_idx in range(num_batches):
+            this_batch = min(batch_size, n - hired)
+            LOG.info(
+                "parallel_hire_in_batches on %s: batch %d/%d (%d workers, %d/%d total).",
+                self._experiment_name,
+                batch_idx + 1,
+                num_batches,
+                this_batch,
+                hired,
+                n,
+            )
+            self.parallel_hire(this_batch, workers=workers, progress=progress)
+            hired += this_batch
+            if batch_idx < num_batches - 1 and delay > 0:
+                LOG.info(
+                    "parallel_hire_in_batches on %s: sleeping %.1fs before batch %d/%d.",
+                    self._experiment_name,
+                    delay,
+                    batch_idx + 2,
+                    num_batches,
+                )
+                time.sleep(delay)
+
     def __str__(self):
         return f"Workforce(experiment_name={self._experiment_name})"
 

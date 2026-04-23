@@ -50,6 +50,7 @@ class MultiRegionWorkforce:
         max_num_workers: int = MAX_WORKERS_LIMIT,
         use_lazy_states: bool = False,
         parallel_strategy: ParallelStrategy = "worker_parallel",
+        batched_delay_in_hiring: bool = True,
     ):
         """
         Initialize the MultiRegionWorkforce.
@@ -62,6 +63,7 @@ class MultiRegionWorkforce:
             num_workers: Number of workers per job (defaults to 1).
             max_num_workers: Maximum number of workers to scale up to (defaults to MAX_WORKERS_LIMIT).
             use_lazy_states: Whether to cache workforce states between calls.
+            batched_delay_in_hiring: Whether to use batched delay when hiring workers (default True).
         """
         self.workforces = workforces
         self.num_workers = num_workers
@@ -82,6 +84,12 @@ class MultiRegionWorkforce:
                 "expected 'worker_parallel' or 'region_parallel'."
             )
         self.parallel_strategy: ParallelStrategy = parallel_strategy
+        # When True, worker_parallel hires are dispatched via
+        # Workforce.parallel_hire_in_batches (batches of 512 with a 10 s
+        # sleep between batches) instead of a single parallel_hire burst.
+        # This avoids overloading the AzureML MFE / container registry on
+        # large hires. Only affects hiring in the worker_parallel strategy.
+        self.batched_delay_in_hiring = batched_delay_in_hiring
         self._states: list[Workforce.State] | None = None
         # Per-workforce last-known-good state, keyed by id(workforce). Used
         # by the ``states`` property to keep a single transient failure in
@@ -91,6 +99,13 @@ class MultiRegionWorkforce:
         # Suppress verbose logging from Azure libraries
         logging.getLogger("azure.identity").setLevel(logging.WARNING)
         logging.getLogger("azure.ai.ml").setLevel(logging.ERROR)
+
+    def _hire_on(self, workforce: Workforce, n: int) -> None:
+        """Hire ``n`` workers on ``workforce`` honoring ``batched_delay_in_hiring``."""
+        if self.batched_delay_in_hiring:
+            workforce.parallel_hire_in_batches(n)
+        else:
+            workforce.parallel_hire(n)
 
     @property
     def states(self) -> list[Workforce.State]:
@@ -476,7 +491,7 @@ class MultiRegionWorkforce:
                 )
                 region_start = time.monotonic()
                 try:
-                    workforce.parallel_hire(n)
+                    self._hire_on(workforce, n)
                 except Exception:
                     LOG.exception("hiring of workers failed on %s.", workforce)
                 else:
@@ -534,7 +549,7 @@ class MultiRegionWorkforce:
         def _apply(workforce: Workforce) -> None:
             if self.parallel_strategy == "worker_parallel":
                 if delta > 0:
-                    workforce.parallel_hire(delta)
+                    self._hire_on(workforce, delta)
                 else:
                     workforce.parallel_lay_off(-delta)
             else:  # region_parallel dispatches per-region; inside a region use sequential
