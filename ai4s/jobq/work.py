@@ -11,7 +11,7 @@ import typing as ty
 from abc import ABC, abstractmethod
 from asyncio.subprocess import PIPE
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, ExitStack
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, ExitStack, suppress
 from functools import partial
 from multiprocessing import Manager
 from queue import Empty
@@ -198,24 +198,84 @@ async def run_cmd_and_log_outputs(
     assert stdout is not None
     assert stderr is not None
 
-    try:
-        await asyncio.gather(
+    # We wait for *both* the process exit and the stream readers.  If the
+    # process exits but the streams stay open (because an orphaned background
+    # child inherited the pipes), we cancel the stream readers after a short
+    # grace period.
+    #
+    # NOTE: asyncio's ``process.wait()`` waits for the transport to close,
+    # which in turn waits for all pipe data to be consumed — so it would hang
+    # just like the stream readers.  For that reason we poll for the raw OS
+    # exit status separately using ``os.waitpid`` with WNOHANG.
+    DRAIN_TIMEOUT = 5  # seconds
+
+    async def _poll_for_exit() -> int:
+        """Poll until the process has exited, without depending on pipe EOF."""
+        while True:
+            try:
+                pid_result, status = os.waitpid(process.pid, os.WNOHANG)
+            except ChildProcessError:
+                # Already reaped by asyncio's child watcher.
+                code = process.returncode
+                return code if code is not None else 1
+            if pid_result != 0:
+                if os.WIFEXITED(status):
+                    return os.WEXITSTATUS(status)
+                # killed by signal
+                return -os.WTERMSIG(status)
+            await asyncio.sleep(0.1)
+
+    read_task = asyncio.ensure_future(
+        asyncio.gather(
             read_stream_and_log(stdout, log_msg_queue, job_id, logging.INFO),
             read_stream_and_log(stderr, log_msg_queue, job_id, logging.WARNING),
             return_exceptions=True,
         )
+    )
+    exit_task = asyncio.ensure_future(_poll_for_exit())
+    try:
+        # Wait until *either* the streams close (normal case) or the process
+        # exits (background-child case).
+        done, _pending = await asyncio.wait(
+            [read_task, exit_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if exit_task in done:
+            ret = exit_task.result()
+            # Process exited but streams still open — drain briefly, then cancel.
+            if not read_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(read_task), timeout=DRAIN_TIMEOUT)
+                except asyncio.TimeoutError:
+                    log(
+                        logging.WARNING,
+                        "Stdout/stderr of process %d still open %ds after exit "
+                        "(orphaned background process?). Cancelling stream readers.",
+                        process.pid,
+                        DRAIN_TIMEOUT,
+                    )
+                    read_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await read_task
+        else:
+            # Streams closed first (normal case) — process should be done or
+            # nearly done.
+            ret = await exit_task
     except Exception:
-        log(logging.DEBUG, "Error reading stdout/stderr of process %d", process.pid)
+        log(logging.DEBUG, "Error waiting for process %d", process.pid)
+        for t in (read_task, exit_task):
+            t.cancel()
+            with suppress(asyncio.CancelledError, ChildProcessError):
+                await t
         process.kill()
         raise
     finally:
         log(
             logging.DEBUG,
-            "Waiting for process %d to exit (terminated: %r)",
+            "Process %d exited (terminated: %r)",
             process.pid,
             terminated,
         )
-        ret = await process.wait()
         if terminated:
             log(logging.DEBUG, "Raising WorkerCanceled since process was terminated")
             raise WorkerCanceled
