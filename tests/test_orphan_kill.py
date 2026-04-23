@@ -11,6 +11,7 @@ Verifies that:
 """
 
 import asyncio
+import contextlib
 import os
 import queue
 import signal
@@ -145,10 +146,8 @@ async def test_sigkill_escalation_after_timeout():
         # Clean up the signal task
         if not sigterm_task.done():
             sigterm_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await sigterm_task
-            except asyncio.CancelledError:
-                pass
     finally:
         if old_val is None:
             os.environ.pop("JOBQ_KILL_TIMEOUT", None)

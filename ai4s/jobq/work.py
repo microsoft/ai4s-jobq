@@ -213,7 +213,7 @@ async def run_cmd_and_log_outputs(
     # which in turn waits for all pipe data to be consumed — so it would hang
     # just like the stream readers.  We poll ``process.returncode`` instead,
     # which is set by asyncio's child watcher independently of pipe state.
-    DRAIN_TIMEOUT = 5  # seconds
+    drain_timeout = 5  # seconds
 
     read_task = asyncio.ensure_future(
         asyncio.gather(
@@ -243,10 +243,8 @@ async def run_cmd_and_log_outputs(
                     process.pid,
                     _kill_timeout,
                 )
-                try:
+                with suppress(ProcessLookupError):
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
                 _terminated_at = None  # only escalate once
             await asyncio.sleep(0.1)
         else:
@@ -255,19 +253,17 @@ async def run_cmd_and_log_outputs(
             # inherited the pipes).  Drain briefly, then cancel.
             if not read_task.done():
                 try:
-                    await asyncio.wait_for(asyncio.shield(read_task), timeout=DRAIN_TIMEOUT)
+                    await asyncio.wait_for(asyncio.shield(read_task), timeout=drain_timeout)
                 except asyncio.TimeoutError:
                     log(
                         logging.WARNING,
                         "Stdout/stderr of process %d still open %ds after exit "
                         "(orphaned background process?). Killing process group.",
                         process.pid,
-                        DRAIN_TIMEOUT,
+                        drain_timeout,
                     )
-                    try:
+                    with suppress(ProcessLookupError, PermissionError):
                         os.killpg(process.pid, signal.SIGKILL)
-                    except (ProcessLookupError, PermissionError):
-                        pass
                     read_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await read_task

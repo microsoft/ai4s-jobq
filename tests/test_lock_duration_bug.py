@@ -42,7 +42,6 @@ import pytest
 
 from ai4s.jobq import JobQ
 from ai4s.jobq.auth import get_token_credential
-from ai4s.jobq.backend.servicebus_rest import _parse_lock_duration
 
 
 def _ts():

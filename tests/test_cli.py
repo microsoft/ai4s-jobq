@@ -545,10 +545,10 @@ async def test_signal1_graceful_shutdown_from_servicebus_handled_correctly(
     for keyword in ["Soft shutdown", "Stopping as", "task a", "task b", "Requeueing", "Pool exited", "signal"]:
         print(f"  '{keyword}' occurrences: {combined.count(keyword)}", flush=True)
     # dump all distinct lines for diagnosis
-    lines = [l.strip() for l in combined.splitlines() if l.strip()]
+    lines = [line.strip() for line in combined.splitlines() if line.strip()]
     print(f"  distinct lines ({len(lines)}):", flush=True)
-    for i, l in enumerate(lines):
-        print(f"    [{i}] {l[:120]}", flush=True)
+    for i, line in enumerate(lines):
+        print(f"    [{i}] {line[:120]}", flush=True)
 
     # we expect task a to finish, and task b should not be started
     combined = stderr + stdout

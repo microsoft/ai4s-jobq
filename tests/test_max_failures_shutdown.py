@@ -64,6 +64,7 @@ def _run_worker(sb_namespace, sb_queue):
 
     return subprocess.run(
         cmd,
+        check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
