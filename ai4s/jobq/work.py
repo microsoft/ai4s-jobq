@@ -7,6 +7,7 @@ import queue
 import shlex
 import shutil
 import signal
+import time
 import typing as ty
 from abc import ABC, abstractmethod
 from asyncio.subprocess import PIPE
@@ -154,19 +155,23 @@ async def run_cmd_and_log_outputs(
             args = ["-q", "-c", cmd, "/dev/null"]
 
         process = await asyncio.create_subprocess_exec(
-            executable, *args, stdout=PIPE, stderr=PIPE, cwd=cwd
+            executable, *args, stdout=PIPE, stderr=PIPE, cwd=cwd, start_new_session=True
         )
     else:
         if emulate_tty:
             quoted_cmd = shlex.quote(cmd)
             cmd = f"script -q -c {quoted_cmd} /dev/null"
 
-        process = await asyncio.create_subprocess_shell(cmd, stdout=PIPE, stderr=PIPE, cwd=cwd)
+        process = await asyncio.create_subprocess_shell(
+            cmd, stdout=PIPE, stderr=PIPE, cwd=cwd, start_new_session=True
+        )
 
     terminated = False
+    _terminated_at: float | None = None
+    _kill_timeout = int(os.environ.get("JOBQ_KILL_TIMEOUT", "600"))
 
     def handle_shutdown_signal(*args):
-        nonlocal terminated
+        nonlocal terminated, _terminated_at
 
         # log to stdout
         LOG.info(
@@ -182,6 +187,7 @@ async def run_cmd_and_log_outputs(
             process.pid,
         )
         terminated = True
+        _terminated_at = time.monotonic()
         try:
             process.send_signal(signal.SIGTERM)
         except ProcessLookupError:
@@ -224,6 +230,24 @@ async def run_cmd_and_log_outputs(
                 # child watcher to set returncode.
                 ret = await process.wait()
                 break
+            # Escalate to SIGKILL if the process didn't exit after SIGTERM.
+            if (
+                _terminated_at is not None
+                and _kill_timeout > 0
+                and time.monotonic() - _terminated_at >= _kill_timeout
+            ):
+                log(
+                    logging.WARNING,
+                    "Process %d did not exit %ds after SIGTERM. "
+                    "Sending SIGKILL to process group.",
+                    process.pid,
+                    _kill_timeout,
+                )
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                _terminated_at = None  # only escalate once
             await asyncio.sleep(0.1)
         else:
             ret = process.returncode
@@ -236,10 +260,14 @@ async def run_cmd_and_log_outputs(
                     log(
                         logging.WARNING,
                         "Stdout/stderr of process %d still open %ds after exit "
-                        "(orphaned background process?). Cancelling stream readers.",
+                        "(orphaned background process?). Killing process group.",
                         process.pid,
                         DRAIN_TIMEOUT,
                     )
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
                     read_task.cancel()
                     with suppress(asyncio.CancelledError):
                         await read_task
@@ -248,7 +276,10 @@ async def run_cmd_and_log_outputs(
         read_task.cancel()
         with suppress(asyncio.CancelledError):
             await read_task
-        process.kill()
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            process.kill()
         raise
     finally:
         log(
