@@ -45,6 +45,61 @@ Features:
   per-iteration error handling, so a single such race would abort the
   entire batch.
 
+* **``MultiRegionWorkforce`` ``parallel_strategy`` and per-tick resume.**
+  Added a ``parallel_strategy`` constructor argument with two values:
+  ``"worker_parallel"`` (new default) and ``"region_parallel"`` (the
+  legacy behavior). Under ``worker_parallel`` MRW loops regions
+  sequentially and delegates to ``Workforce.parallel_hire`` /
+  ``parallel_lay_off`` (8 threads internally). This better handles
+  uneven hiring distributions: a region that needs 5 hires no longer
+  blocks one that needs 500. The legacy ``region_parallel`` fans out
+  across regions with a ``ThreadPoolExecutor`` and uses the sequential
+  ``hire`` / ``lay_off`` within a region. Applies uniformly to
+  ``run()``, ``run(scale_to_zero=True)``, ``run(manual_hire=n)`` (new
+  ``_apply_uniform_change`` helper), and ``layoff_queued_workers``.
+
+  ``run()`` now resumes paused workers in every region at the end of
+  each tick via a new ``_resume_all_regions`` helper. This is cheap
+  when nothing is paused (one ``list_jobs`` per region) and prevents
+  the running pool from bleeding away on Singularity where jobs hit
+  max-execution-time caps between ticks.
+
+Fixes / resilience:
+
+* **``Workforce.list_jobs`` retries transient 5xx / 429 responses.**
+  The AzureML index endpoint behind ``ml.azure.com`` occasionally
+  returns raw nginx 503 HTML during regional load spikes. ``list_jobs``
+  now retries up to ``_LIST_JOBS_MAX_RETRIES=3`` times, honoring
+  ``Retry-After`` / ``x-ms-retry-after-ms`` with exponential-backoff
+  fallback (same helper already used by ``_resume_one``). Previously
+  any non-200 response aborted ``get_current_state`` / ``get_detailed_state``
+  / scaling with a ``RuntimeError``.
+
+* **``MultiRegionWorkforce.states`` tolerates per-region failures.**
+  If ``get_current_state`` raises for a single region (for example, retries
+  exhausted), MRW now falls back to that workforce's last-known-good
+  state cached in ``_last_good_state``, or to a zero ``State`` if no
+  successful reading exists yet. One flaky region no longer aborts
+  the whole autoscaling tick.
+
+Internal / observability:
+
+* **Richer ``Workforce`` progress bars.**
+  Progress bars (``hire``, ``parallel_hire``, ``lay_off``,
+  ``parallel_lay_off``, ``resume``, ``parallel_resume``) now show
+  percent complete, a live items-per-second ``_RateColumn``, live
+  ``✓`` / ``✗`` counters inside the description, and the workforce's
+  experiment name so bars are self-identifying when a caller loops
+  over many regions. Columns are unified across sequential and
+  parallel variants via a new ``_make_progress`` helper.
+
+* **Per-region MRW logs.**
+  ``run()`` now logs a ``Tick start`` line, marks every region with
+  ``[i/N] name:``, emits per-region wall-clock timings, and closes
+  each tick with a summary (``Tick done across K region(s) in Ys:
+  hired X/Y``). The same structure applies to scale-to-zero, manual
+  hire / lay-off, and the paused-worker resume pass.
+
 
 3.8.0 (2026-04-21)
 ------------------
