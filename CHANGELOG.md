@@ -2,7 +2,7 @@ CHANGELOG
 =========
 
 
-3.9.0 (unreleased)
+3.9.0 (2026-04-23)
 ------------------
 
 Features:
@@ -108,31 +108,6 @@ Fixes / resilience:
   successful reading exists yet. One flaky region no longer aborts
   the whole autoscaling tick.
 
-Internal / observability:
-
-* **Richer ``Workforce`` progress bars.**
-  Progress bars (``hire``, ``parallel_hire``, ``lay_off``,
-  ``parallel_lay_off``, ``resume``, ``parallel_resume``) now show
-  percent complete, a live items-per-second ``_RateColumn``, live
-  ``✓`` / ``✗`` counters inside the description, and the workforce's
-  experiment name so bars are self-identifying when a caller loops
-  over many regions. Columns are unified across sequential and
-  parallel variants via a new ``_make_progress`` helper.
-
-* **Per-region MRW logs.**
-  ``run()`` now logs a ``Tick start`` line, marks every region with
-  ``[i/N] name:``, emits per-region wall-clock timings for state
-  fetch, capacity query, hire, and resume phases, and closes each
-  tick with a summary (``Tick done across K region(s) in Ys: hired
-  X/Y``). The same structure applies to scale-to-zero, manual
-  hire / lay-off, and the paused-worker resume pass.
-
-
-3.8.1 (2026-04-23)
-------------------
-
-Fixes:
-
 * **Lock-loss events no longer count as consecutive failures.**
   Added ``LockLostError`` exception for Service Bus lock-loss events
   (expired locks, 404 on renewal). Previously these were counted as
@@ -158,7 +133,24 @@ Fixes:
   subprocess runs in its own process group so the signal reaches all
   descendants without affecting the worker.
 
-Internal:
+Internal / observability:
+
+* **Richer ``Workforce`` progress bars.**
+  Progress bars (``hire``, ``parallel_hire``, ``lay_off``,
+  ``parallel_lay_off``, ``resume``, ``parallel_resume``) now show
+  percent complete, a live items-per-second ``_RateColumn``, live
+  ``✓`` / ``✗`` counters inside the description, and the workforce's
+  experiment name so bars are self-identifying when a caller loops
+  over many regions. Columns are unified across sequential and
+  parallel variants via a new ``_make_progress`` helper.
+
+* **Per-region MRW logs.**
+  ``run()`` now logs a ``Tick start`` line, marks every region with
+  ``[i/N] name:``, emits per-region wall-clock timings for state
+  fetch, capacity query, hire, and resume phases, and closes each
+  tick with a summary (``Tick done across K region(s) in Ys: hired
+  X/Y``). The same structure applies to scale-to-zero, manual
+  hire / lay-off, and the paused-worker resume pass.
 
 * **Rich console sharing between progress bar and log handler.**
   The progress bar and ``RichHandler`` now share a single ``Console``
