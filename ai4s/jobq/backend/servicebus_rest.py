@@ -642,18 +642,24 @@ class ServiceBusRestBackend(JobQBackend):
 
                     for retry_attempt in range(1 + max_fast_retries):
                         try:
-                            new_duration = await rest_client.renew_lock(
+                            new_expiry_duration = await rest_client.renew_lock(
                                 message.location_url,
                                 timeout=per_request_timeout,
                             )
-                            message.lock_duration_seconds = new_duration
-                            lock_duration = new_duration
-                            per_request_timeout = aiohttp.ClientTimeout(
-                                total=max(lock_duration / 3, 5)
-                            )
+                            # Don't overwrite lock_duration / per_request_timeout
+                            # with the renewal response.  The response's
+                            # LockedUntilUtc reflects the *new* expiry relative
+                            # to now (often the Service Bus default of 30s),
+                            # not the queue's configured lock duration.  Using
+                            # the original value keeps the renewal interval and
+                            # timeout calibrated correctly.
                             last_success = time.monotonic()
                             lock_lost_logged = False
-                            LOG.debug("Renewed lock for message %s", message.message_id)
+                            LOG.debug(
+                                "Renewed lock for message %s (new expiry in %.0fs)",
+                                message.message_id,
+                                new_expiry_duration,
+                            )
                             break  # success — exit retry loop
                         except asyncio.CancelledError:
                             raise
