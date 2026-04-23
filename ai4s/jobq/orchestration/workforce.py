@@ -432,29 +432,16 @@ class Workforce:
             token = self._credential.get_token("https://ml.azure.com/.default")
             headers = {"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
             # Retry transient 5xx (nginx 503s are common during AML front-door
-            # load spikes) and 429s, honoring Retry-After with exponential
-            # backoff fallback. Exhausting retries raises so the caller can
-            # decide whether to fall back to a cached state.
-            for attempt in range(self._LIST_JOBS_MAX_RETRIES + 1):
-                response = self.session.post(
-                    url,
-                    json=dict(**payload, continuationToken=continuation_token),
-                    headers=headers,
-                )
-                if response.status_code < 500 and response.status_code != 429:
-                    break
-                if attempt == self._LIST_JOBS_MAX_RETRIES:
-                    break
-                delay = self._resume_retry_delay(response, attempt)
-                LOG.warning(
-                    "list_jobs on %s got HTTP %d; retrying in %.1fs (attempt %d/%d)",
-                    self._experiment_name,
-                    response.status_code,
-                    delay,
-                    attempt + 1,
-                    self._LIST_JOBS_MAX_RETRIES,
-                )
-                time.sleep(delay)
+            # load spikes), 429s, and connection-level errors (DNS failures,
+            # TCP resets, read timeouts). Exhausting retries raises so the
+            # caller can decide whether to fall back to a cached state.
+            response = self._request_with_retry(
+                "POST",
+                url,
+                headers=headers,
+                json=dict(**payload, continuationToken=continuation_token),
+                endpoint_label="list_jobs",
+            )
 
             if response.status_code != 200:
                 raise RuntimeError(
@@ -899,6 +886,73 @@ class Workforce:
                 pass
         return min(2.0**attempt, 30.0) + random.uniform(0, 1)
 
+    def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        *,
+        endpoint_label: str,
+        max_retries: int | None = None,
+        timeout: float = 60.0,
+        **kwargs,
+    ) -> requests.Response:
+        """Issue an HTTP request with retry on transient failures.
+
+        Retries both:
+        - Connection-level errors (DNS failures, TCP resets, read
+          timeouts) raised by ``requests`` as ``RequestException``
+          subclasses. Common in multi-region autoscaling when a local
+          resolver briefly fails or a regional endpoint is momentarily
+          unreachable.
+        - HTTP responses with status 5xx or 429, honoring
+          ``Retry-After`` / ``x-ms-retry-after-ms`` with exponential
+          backoff fallback (:meth:`_resume_retry_delay`).
+
+        On exhausting retries the final response (or the last exception)
+        is returned / re-raised to the caller.
+        """
+        retries = max_retries if max_retries is not None else self._LIST_JOBS_MAX_RETRIES
+        last_exc: requests.exceptions.RequestException | None = None
+        for attempt in range(retries + 1):
+            try:
+                response = self.session.request(method, url, timeout=timeout, **kwargs)
+            except requests.exceptions.RequestException as exc:
+                last_exc = exc
+                if attempt == retries:
+                    raise
+                delay = min(2.0**attempt, 30.0) + random.uniform(0, 1)
+                LOG.warning(
+                    "%s on %s network error %s: %s; retrying in %.1fs (attempt %d/%d)",
+                    endpoint_label,
+                    self._experiment_name,
+                    type(exc).__name__,
+                    exc,
+                    delay,
+                    attempt + 1,
+                    retries,
+                )
+                time.sleep(delay)
+                continue
+
+            if response.status_code < 500 and response.status_code != 429:
+                return response
+            if attempt == retries:
+                return response
+            delay = self._resume_retry_delay(response, attempt)
+            LOG.warning(
+                "%s on %s got HTTP %d; retrying in %.1fs (attempt %d/%d)",
+                endpoint_label,
+                self._experiment_name,
+                response.status_code,
+                delay,
+                attempt + 1,
+                retries,
+            )
+            time.sleep(delay)
+        # Unreachable — loop always returns or raises. Kept for type-checkers.
+        assert last_exc is not None
+        raise last_exc
+
     def _resume_one(self, worker: AmlJob) -> None:
         """Resume a single paused job via the MFE execution REST API.
 
@@ -1027,27 +1081,13 @@ class Workforce:
         token = self._credential.get_token("https://management.core.windows.net/.default")
         headers = {"Authorization": f"Bearer {token.token}", "Content-Type": "application/json"}
 
-        # Retry transient 5xx / 429 with Retry-After honoring, mirroring
-        # list_jobs. ARM get-compute can also blip under regional load.
-        response: requests.Response | None = None
-        for attempt in range(self._LIST_JOBS_MAX_RETRIES + 1):
-            response = self.session.get(url, headers=headers)
-            if response.status_code < 500 and response.status_code != 429:
-                break
-            if attempt == self._LIST_JOBS_MAX_RETRIES:
-                break
-            delay = self._resume_retry_delay(response, attempt)
-            LOG.warning(
-                "get_compute_infos on %s got HTTP %d; retrying in %.1fs (attempt %d/%d)",
-                self._experiment_name,
-                response.status_code,
-                delay,
-                attempt + 1,
-                self._LIST_JOBS_MAX_RETRIES,
-            )
-            time.sleep(delay)
+        # Retry transient 5xx / 429 and connection-level errors (DNS
+        # failures, TCP resets, read timeouts). ARM get-compute can blip
+        # under regional load just like the MFE list endpoint.
+        response = self._request_with_retry(
+            "GET", url, headers=headers, endpoint_label="get_compute_infos"
+        )
 
-        assert response is not None  # loop always assigns
         if response.status_code != 200:
             raise RuntimeError(
                 f"Failed to fetch cluster information {compute_name}: {response.text}"
