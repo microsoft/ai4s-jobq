@@ -58,6 +58,21 @@ TaskType = ty.TypeVar("TaskType")
 SeedType = ty.TypeVar("SeedType")
 
 
+def _get_rich_console() -> "rich.console.Console | None":
+    """Find the Console used by the active RichHandler, if any.
+
+    Sharing this console with ``rich.progress.Progress`` ensures log messages
+    are properly interleaved with the live progress display instead of being
+    overwritten by it.
+    """
+    from rich.logging import RichHandler
+
+    for handler in logging.root.handlers:
+        if isinstance(handler, RichHandler):
+            return handler.console
+    return None
+
+
 try:
     import mlflow  # type: ignore[import-not-found]
 
@@ -153,7 +168,10 @@ async def batch_enqueue(
                 columns.append(rich.progress.TextColumn(work_spec.__class__.__qualname__))
 
         if show_progress:
-            progress = stack.enter_context(rich.progress.Progress(*columns, refresh_per_second=1))
+            console = _get_rich_console()
+            progress = stack.enter_context(
+                rich.progress.Progress(*columns, refresh_per_second=1, console=console)
+            )
             task_id = progress.add_task("Enqueued", total=None)
 
         @_async_catch_and_print_exc
@@ -322,7 +340,10 @@ async def launch_workers(
             columns.append(processor.stats)
 
         if show_progress:
-            progress = stack.enter_context(rich.progress.Progress(*columns, refresh_per_second=1))
+            console = _get_rich_console()
+            progress = stack.enter_context(
+                rich.progress.Progress(*columns, refresh_per_second=1, console=console)
+            )
             task_id = progress.add_task("Enqueued", total=None)
 
         # This event will be set whenever we get preempted.
