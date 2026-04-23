@@ -96,3 +96,25 @@ ai4s-jobq <YOUR-STORAGE-ACCOUNT>/demo-preemption worker --num-workers 2 --heartb
 To simulate a preemption, press Ctrl-C in the terminal where the worker is running. Look at the output, you can see that the CHECKPOINTING message is printed when the SIGTERM signal is received.
 
 **Best practices**: Your sigterm-handles should be quick, and should not raise exceptions. It should not call sys.exit() or similar. It should ideally just signal to the main thread to checkpoint and exit.
+
+## SIGKILL escalation for unresponsive processes
+
+When a worker sends SIGTERM to a task subprocess (for example, during preemption or
+graceful shutdown), the subprocess is expected to clean up and exit. If the process
+ignores or mishandles SIGTERM and keeps running, the worker escalates to SIGKILL
+after a configurable timeout.
+
+Each subprocess runs in its own process group (`start_new_session=True`), so the
+SIGKILL is sent to the entire process group. This ensures that any child processes
+spawned by the task are also terminated, preventing orphaned processes from
+consuming resources after the worker moves on.
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `JOBQ_KILL_TIMEOUT` | `600` (10 minutes) | Seconds to wait after SIGTERM before sending SIGKILL to the process group. Set to `0` to disable SIGKILL escalation (not recommended). |
+
+For short-lived test scenarios, you can set a lower value:
+
+```shell
+JOBQ_KILL_TIMEOUT=30 ai4s-jobq myaccount/myqueue worker --num-workers 2
+```

@@ -128,6 +128,52 @@ Internal / observability:
   hire / lay-off, and the paused-worker resume pass.
 
 
+3.8.1 (2026-04-23)
+------------------
+
+Fixes:
+
+* **Lock-loss events no longer count as consecutive failures.**
+  Added ``LockLostError`` exception for Service Bus lock-loss events
+  (expired locks, 404 on renewal). Previously these were counted as
+  consecutive failures, eventually shutting down healthy workers. The
+  worker now skips the failure counter and continues to the next task.
+
+* **Lock duration no longer drops to 30 s after first renewal.**
+  The renewal loop was overwriting its lock duration with the value
+  returned by ``renew_lock()``, but the Service Bus REST API returns
+  empty ``BrokerProperties`` on renewal responses, causing a fallback
+  to the 30 s default. The original lock duration from the initial
+  peek-lock is now kept for the entire renewal loop lifetime.
+
+* **Orphaned child processes no longer hang workers.**
+  Rewrote the orphan detection to poll ``process.returncode`` instead
+  of ``os.waitpid(WNOHANG)``, which raced with asyncio's
+  ``ThreadedChildWatcher``. Added a drain timeout with process group
+  termination for inherited-pipe scenarios.
+
+* **SIGKILL escalation for unresponsive subprocesses.**
+  When a subprocess ignores SIGTERM, the worker now escalates to
+  SIGKILL after ``JOBQ_KILL_TIMEOUT`` seconds (default: 600). Each
+  subprocess runs in its own process group so the signal reaches all
+  descendants without affecting the worker.
+
+Internal:
+
+* **Rich console sharing between progress bar and log handler.**
+  The progress bar and ``RichHandler`` now share a single ``Console``
+  instance, preventing interleaved output.
+
+* **Timestamp diagnostics for live Service Bus tests.**
+  Added timestamps to all live tests for easier debugging of
+  timing-sensitive scenarios.
+
+* **Fixed graceful shutdown test failures.**
+  Fixed subprocess ``env`` dict not inheriting the parent environment,
+  and fixed assertions broken by Rich line-wrapping of long log
+  messages.
+
+
 3.8.0 (2026-04-21)
 ------------------
 

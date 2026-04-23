@@ -7,11 +7,12 @@ import queue
 import shlex
 import shutil
 import signal
+import time
 import typing as ty
 from abc import ABC, abstractmethod
 from asyncio.subprocess import PIPE
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, ExitStack
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, ExitStack, suppress
 from functools import partial
 from multiprocessing import Manager
 from queue import Empty
@@ -154,19 +155,23 @@ async def run_cmd_and_log_outputs(
             args = ["-q", "-c", cmd, "/dev/null"]
 
         process = await asyncio.create_subprocess_exec(
-            executable, *args, stdout=PIPE, stderr=PIPE, cwd=cwd
+            executable, *args, stdout=PIPE, stderr=PIPE, cwd=cwd, start_new_session=True
         )
     else:
         if emulate_tty:
             quoted_cmd = shlex.quote(cmd)
             cmd = f"script -q -c {quoted_cmd} /dev/null"
 
-        process = await asyncio.create_subprocess_shell(cmd, stdout=PIPE, stderr=PIPE, cwd=cwd)
+        process = await asyncio.create_subprocess_shell(
+            cmd, stdout=PIPE, stderr=PIPE, cwd=cwd, start_new_session=True
+        )
 
     terminated = False
+    _terminated_at: float | None = None
+    _kill_timeout = int(os.environ.get("JOBQ_KILL_TIMEOUT", "600"))
 
     def handle_shutdown_signal(*args):
-        nonlocal terminated
+        nonlocal terminated, _terminated_at
 
         # log to stdout
         LOG.info(
@@ -182,6 +187,7 @@ async def run_cmd_and_log_outputs(
             process.pid,
         )
         terminated = True
+        _terminated_at = time.monotonic()
         try:
             process.send_signal(signal.SIGTERM)
         except ProcessLookupError:
@@ -198,24 +204,85 @@ async def run_cmd_and_log_outputs(
     assert stdout is not None
     assert stderr is not None
 
-    try:
-        await asyncio.gather(
+    # We wait for *both* the process exit and the stream readers.  If the
+    # process exits but the streams stay open (because an orphaned background
+    # child inherited the pipes), we cancel the stream readers after a short
+    # grace period.
+    #
+    # NOTE: asyncio's ``process.wait()`` waits for the transport to close,
+    # which in turn waits for all pipe data to be consumed — so it would hang
+    # just like the stream readers.  We poll ``process.returncode`` instead,
+    # which is set by asyncio's child watcher independently of pipe state.
+    drain_timeout = 5  # seconds
+
+    read_task = asyncio.ensure_future(
+        asyncio.gather(
             read_stream_and_log(stdout, log_msg_queue, job_id, logging.INFO),
             read_stream_and_log(stderr, log_msg_queue, job_id, logging.WARNING),
             return_exceptions=True,
         )
+    )
+    try:
+        # Poll for process exit without depending on pipe EOF.
+        while process.returncode is None:
+            if read_task.done():
+                # Streams closed first (normal case) — just wait for the
+                # child watcher to set returncode.
+                ret = await process.wait()
+                break
+            # Escalate to SIGKILL if the process didn't exit after SIGTERM.
+            if (
+                _terminated_at is not None
+                and _kill_timeout > 0
+                and time.monotonic() - _terminated_at >= _kill_timeout
+            ):
+                log(
+                    logging.WARNING,
+                    "Process %d did not exit %ds after SIGTERM. Sending SIGKILL to process group.",
+                    process.pid,
+                    _kill_timeout,
+                )
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                _terminated_at = None  # only escalate once
+            await asyncio.sleep(0.1)
+        else:
+            ret = process.returncode
+            # Process exited but streams may still be open (orphaned child
+            # inherited the pipes).  Drain briefly, then cancel.
+            if not read_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(read_task), timeout=drain_timeout)
+                except asyncio.TimeoutError:
+                    log(
+                        logging.WARNING,
+                        "Stdout/stderr of process %d still open %ds after exit "
+                        "(orphaned background process?). Killing process group.",
+                        process.pid,
+                        drain_timeout,
+                    )
+                    with suppress(ProcessLookupError, PermissionError):
+                        os.killpg(process.pid, signal.SIGKILL)
+                    read_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await read_task
     except Exception:
-        log(logging.DEBUG, "Error reading stdout/stderr of process %d", process.pid)
-        process.kill()
+        log(logging.DEBUG, "Error waiting for process %d", process.pid)
+        read_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await read_task
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            process.kill()
         raise
     finally:
         log(
             logging.DEBUG,
-            "Waiting for process %d to exit (terminated: %r)",
+            "Process %d exited (terminated: %r)",
             process.pid,
             terminated,
         )
-        ret = await process.wait()
         if terminated:
             log(logging.DEBUG, "Raising WorkerCanceled since process was terminated")
             raise WorkerCanceled

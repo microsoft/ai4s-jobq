@@ -16,6 +16,7 @@ import aiohttp.client_exceptions
 import psutil
 import rich.progress
 from azure.core.exceptions import ServiceResponseError
+from rich.logging import RichHandler
 from tenacity import RetryError
 
 try:
@@ -33,7 +34,15 @@ from contextlib import AsyncExitStack, suppress
 from functools import wraps
 from itertools import chain
 
-from ai4s.jobq import EmptyQueue, JobQ, JobQFuture, Response, WorkerCanceled, WorkSpecification
+from ai4s.jobq import (
+    EmptyQueue,
+    JobQ,
+    JobQFuture,
+    LockLostError,
+    Response,
+    WorkerCanceled,
+    WorkSpecification,
+)
 from ai4s.jobq.logging_utils import (
     flush_app_insights,
     set_context_dimensions,
@@ -48,6 +57,19 @@ TRACE = get_tracer("ai4s.jobq")
 T = ty.TypeVar("T")
 TaskType = ty.TypeVar("TaskType")
 SeedType = ty.TypeVar("SeedType")
+
+
+def _get_rich_console() -> "rich.console.Console | None":
+    """Find the Console used by the active RichHandler, if any.
+
+    Sharing this console with ``rich.progress.Progress`` ensures log messages
+    are properly interleaved with the live progress display instead of being
+    overwritten by it.
+    """
+    for handler in logging.root.handlers:
+        if isinstance(handler, RichHandler):
+            return handler.console
+    return None
 
 
 try:
@@ -145,7 +167,10 @@ async def batch_enqueue(
                 columns.append(rich.progress.TextColumn(work_spec.__class__.__qualname__))
 
         if show_progress:
-            progress = stack.enter_context(rich.progress.Progress(*columns, refresh_per_second=1))
+            console = _get_rich_console()
+            progress = stack.enter_context(
+                rich.progress.Progress(*columns, refresh_per_second=1, console=console)
+            )
             task_id = progress.add_task("Enqueued", total=None)
 
         @_async_catch_and_print_exc
@@ -314,7 +339,10 @@ async def launch_workers(
             columns.append(processor.stats)
 
         if show_progress:
-            progress = stack.enter_context(rich.progress.Progress(*columns, refresh_per_second=1))
+            console = _get_rich_console()
+            progress = stack.enter_context(
+                rich.progress.Progress(*columns, refresh_per_second=1, console=console)
+            )
             task_id = progress.add_task("Enqueued", total=None)
 
         # This event will be set whenever we get preempted.
@@ -633,6 +661,12 @@ async def launch_workers(
                                     "Maximum number of consecutive failures reached. Exiting."
                                 )
                                 raise TooManyFailuresException
+                    except LockLostError:
+                        LOG.info(
+                            "Worker %d: lock lost — retrying (not counted as failure).",
+                            idx,
+                        )
+                        continue
                     except WorkerCanceled:
                         await flush_app_insights()
                         LOG.info("Worker %d canceled.", idx)
