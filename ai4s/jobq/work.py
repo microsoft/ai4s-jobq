@@ -238,8 +238,7 @@ async def run_cmd_and_log_outputs(
             ):
                 log(
                     logging.WARNING,
-                    "Process %d did not exit %ds after SIGTERM. "
-                    "Sending SIGKILL to process group.",
+                    "Process %d did not exit %ds after SIGTERM. Sending SIGKILL to process group.",
                     process.pid,
                     _kill_timeout,
                 )

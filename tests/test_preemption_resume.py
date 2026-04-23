@@ -63,9 +63,11 @@ async def test_preemption_resume_processes_tasks(sb_namespace, sb_queue):
             executable,
             queue_spec,
             "worker",
-            "-n", "1",
+            "-n",
+            "1",
             # High enough so failure-shutdown is not triggered.
-            "--max-consecutive-failures", str(NUM_TASKS + 5),
+            "--max-consecutive-failures",
+            str(NUM_TASKS + 5),
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -121,9 +123,7 @@ async def test_preemption_resume_processes_tasks(sb_namespace, sb_queue):
         )
 
     # 4. Worker exited cleanly (queue empty)
-    assert returncode == 0, (
-        f"Worker exited with code {returncode}.\nOutput:\n{output[-3000:]}"
-    )
+    assert returncode == 0, f"Worker exited with code {returncode}.\nOutput:\n{output[-3000:]}"
 
 
 @pytest.mark.live
@@ -158,8 +158,10 @@ async def test_preemption_resume_with_background_process(sb_namespace, sb_queue)
             executable,
             queue_spec,
             "worker",
-            "-n", "1",
-            "--max-consecutive-failures", str(NUM_TASKS + 5),
+            "-n",
+            "1",
+            "--max-consecutive-failures",
+            str(NUM_TASKS + 5),
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -206,6 +208,4 @@ async def test_preemption_resume_with_background_process(sb_namespace, sb_queue)
         assert f"task_{i}_done" in output, (
             f"Task {i} was not processed after resume.\nOutput:\n{output[-3000:]}"
         )
-    assert returncode == 0, (
-        f"Worker exited with code {returncode}.\nOutput:\n{output[-3000:]}"
-    )
+    assert returncode == 0, f"Worker exited with code {returncode}.\nOutput:\n{output[-3000:]}"

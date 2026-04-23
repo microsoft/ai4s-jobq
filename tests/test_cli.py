@@ -542,7 +542,15 @@ async def test_signal1_graceful_shutdown_from_servicebus_handled_correctly(
     print(f"  stdout ({len(stdout)} chars):\n{stdout[-3000:]}", flush=True)
     print(f"  stderr ({len(stderr)} chars):\n{stderr[-3000:]}", flush=True)
     combined = stderr + stdout
-    for keyword in ["Soft shutdown", "Stopping as", "task a", "task b", "Requeueing", "Pool exited", "signal"]:
+    for keyword in [
+        "Soft shutdown",
+        "Stopping as",
+        "task a",
+        "task b",
+        "Requeueing",
+        "Pool exited",
+        "signal",
+    ]:
         print(f"  '{keyword}' occurrences: {combined.count(keyword)}", flush=True)
     # dump all distinct lines for diagnosis
     lines = [line.strip() for line in combined.splitlines() if line.strip()]
@@ -557,7 +565,10 @@ async def test_signal1_graceful_shutdown_from_servicebus_handled_correctly(
     assert combined.count("bash got signal-A") == 0  # task should not be cancelled
     assert combined.count("bash got signal-B") == 0  # task should not be cancelled
     assert combined.count("Requeueing") == 0
-    assert "Soft shutdown requested. Will not accept additional tasks and sleep until this process is terminated." in combined_flat
+    assert (
+        "Soft shutdown requested. Will not accept additional tasks and sleep until this process is terminated."
+        in combined_flat
+    )
     assert "Stopping as we are not accepting new tasks." in combined_flat
     assert combined.count("task a finished") == 1
     assert combined.count("task b finished") == 0
@@ -652,7 +663,10 @@ async def test_signal2_graceful_shutdown_from_servicebus_handled_correctly(
     assert combined.count("bash got signal-A") == 1  # task should be cancelled
     assert combined.count("bash got signal-B") == 0  # task should not be started
     assert combined.count("Requeueing") == 1
-    assert "Soft shutdown requested. Will not accept additional tasks, cancel current one(s)" in combined_flat
+    assert (
+        "Soft shutdown requested. Will not accept additional tasks, cancel current one(s)"
+        in combined_flat
+    )
     assert "Sending termination signal to pool process" in combined_flat
     assert "Stopping as we are not accepting new tasks." in combined_flat
     # as we give the task some time to write a checkpoint, the task actually has time to finish

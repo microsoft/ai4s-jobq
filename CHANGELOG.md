@@ -57,11 +57,11 @@ Fixes:
   consecutive failures, eventually shutting down healthy workers. The
   worker now skips the failure counter and continues to the next task.
 
-* **Lock duration no longer drops to 30s after first renewal.**
+* **Lock duration no longer drops to 30 s after first renewal.**
   The renewal loop was overwriting its lock duration with the value
   returned by ``renew_lock()``, but the Service Bus REST API returns
   empty ``BrokerProperties`` on renewal responses, causing a fallback
-  to the 30s default. The original lock duration from the initial
+  to the 30 s default. The original lock duration from the initial
   peek-lock is now kept for the entire renewal loop lifetime.
 
 * **Orphaned child processes no longer hang workers.**
