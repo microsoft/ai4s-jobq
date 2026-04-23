@@ -45,18 +45,14 @@ Features:
   per-iteration error handling, so a single such race would abort the
   entire batch.
 
-* **``MultiRegionWorkforce`` ``parallel_strategy`` and per-tick resume.**
-  Added a ``parallel_strategy`` constructor argument with two values:
-  ``"worker_parallel"`` (new default) and ``"region_parallel"`` (the
-  legacy behavior). Under ``worker_parallel`` MRW loops regions
-  sequentially and delegates to ``Workforce.parallel_hire`` /
-  ``parallel_lay_off`` (8 threads internally). This better handles
-  uneven hiring distributions: a region that needs 5 hires no longer
-  blocks one that needs 500. The legacy ``region_parallel`` fans out
-  across regions with a ``ThreadPoolExecutor`` and uses the sequential
-  ``hire`` / ``lay_off`` within a region. Applies uniformly to
-  ``run()``, ``run(scale_to_zero=True)``, ``run(manual_hire=n)`` (new
-  ``_apply_uniform_change`` helper), and ``layoff_queued_workers``.
+* **``MultiRegionWorkforce`` parallel hires and per-tick resume.**
+  MRW now loops regions sequentially and delegates to
+  ``Workforce.parallel_hire`` / ``parallel_lay_off`` (8 threads
+  internally). This better handles uneven hiring distributions: a
+  region that needs 5 hires no longer blocks one that needs 500.
+  Applies uniformly to ``run()``, ``run(scale_to_zero=True)``,
+  ``run(manual_hire=n)`` (new ``_apply_uniform_change`` helper), and
+  ``layoff_queued_workers``.
 
   ``run()`` now resumes paused workers in every region at the end of
   each tick via a new ``_resume_all_regions`` helper. This is cheap
