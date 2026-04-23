@@ -343,3 +343,51 @@ class TestResume:
             picks = wf._paused_candidates(5)
         assert len(picks) == 1
         assert "Only 1 paused workers" in caplog.text
+
+
+class TestGetComputeInfosComputeRef:
+    """Regression: ``Command.compute`` may be either a bare compute name
+    or a full ARM resource id. ``MLClient.jobs.create_or_update`` rewrites
+    a bare name to the full id as a side effect of submission, so every
+    workforce sees the ARM-id form on ``self._job.compute`` after its
+    first hire. The ARM ``GET /computes/{name}`` URL template requires
+    the bare name, so ``get_compute_infos`` must normalize before
+    substitution — otherwise the resulting URL double-nests the id,
+    ARM returns non-2xx, and MRW autoscaling silently reports 0
+    capacity for the rest of the process lifetime.
+    """
+
+    def _prime(self, compute_ref: str) -> tuple[Workforce, MagicMock]:
+        wf = _bare_workforce()
+        wf._job = MagicMock()
+        wf._job.compute = compute_ref
+        wf._credential.get_token = MagicMock(return_value=MagicMock(token="tok"))
+        captured = MagicMock()
+        captured.status_code = 500
+        captured.reason = "Internal Server Error"
+        captured.text = ""
+        wf._request_with_retry = MagicMock(return_value=captured)  # type: ignore[method-assign]
+        return wf, captured
+
+    def test_bare_compute_name_goes_into_url_unchanged(self) -> None:
+        wf, _ = self._prime("mat-f16sv2-eastus")
+        with pytest.raises(RuntimeError):
+            wf.get_compute_infos()
+        url = wf._request_with_retry.call_args.args[1]
+        assert url.endswith("/workspaces/ws/computes/mat-f16sv2-eastus?api-version=2021-04-01")
+        assert "/computes//" not in url
+
+    def test_full_arm_id_is_reduced_to_bare_name(self) -> None:
+        arm_id = (
+            "/subscriptions/sub/resourceGroups/rg/providers/"
+            "Microsoft.MachineLearningServices/workspaces/ws/"
+            "computes/mat-f16sv2-eastus"
+        )
+        wf, _ = self._prime(arm_id)
+        with pytest.raises(RuntimeError):
+            wf.get_compute_infos()
+        url = wf._request_with_retry.call_args.args[1]
+        assert url.endswith("/workspaces/ws/computes/mat-f16sv2-eastus?api-version=2021-04-01")
+        # The bug produced a URL like ``.../computes//subscriptions/...``.
+        assert "/computes//" not in url
+        assert "/subscriptions/sub/resourceGroups/rg/providers" not in url.split("computes/", 1)[1]
