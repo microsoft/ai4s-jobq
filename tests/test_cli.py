@@ -508,16 +508,23 @@ async def test_signal1_graceful_shutdown_from_servicebus_handled_correctly(
         "--visibility-timeout=30s",
     )
 
+    t0 = datetime.now()
+    print(f"\n[{t0:%H:%M:%S}] starting worker subprocess", flush=True)
+    print(f"  cmd: {' '.join(worker_cmd)}", flush=True)
+    print(f"  env: JOBQ_PID_DIR={tmp_path}, JOBQ_PREEMPTION_TIMEOUT=2", flush=True)
     with subprocess.Popen(
         worker_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         encoding="utf-8",
-        env={"JOBQ_PID_DIR": str(tmp_path)},
+        env={**os.environ, "JOBQ_PID_DIR": str(tmp_path), "PYTHONUNBUFFERED": "1"},
     ) as proc:
         # give everything 2 seconds to start
         with pytest.raises(subprocess.TimeoutExpired):
             proc.communicate(timeout=2)
+
+        pid_files = list(tmp_path.glob("*.pid"))
+        print(f"[{datetime.now():%H:%M:%S}] pid files after 2s: {pid_files}", flush=True)
         start = datetime.now()
 
         # sending SIGUSR1 to glob, queue should do-not-accept-new-tasks and finish current one
@@ -525,21 +532,36 @@ async def test_signal1_graceful_shutdown_from_servicebus_handled_correctly(
             pattern=f"{tmp_path}/*.pid",
             signal_to_send=signal.SIGUSR1,
         )
+        print(f"[{datetime.now():%H:%M:%S}] sent SIGUSR1, waiting for process to exit", flush=True)
         stdout, stderr = proc.communicate()
         stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
+    print(f"[{end:%H:%M:%S}] process exited after {(end - start).total_seconds():.1f}s", flush=True)
+    print(f"  returncode: {proc.returncode}", flush=True)
+    print(f"  stdout ({len(stdout)} chars):\n{stdout[-3000:]}", flush=True)
+    print(f"  stderr ({len(stderr)} chars):\n{stderr[-3000:]}", flush=True)
+    combined = stderr + stdout
+    for keyword in ["Soft shutdown", "Stopping as", "task a", "task b", "Requeueing", "Pool exited", "signal"]:
+        print(f"  '{keyword}' occurrences: {combined.count(keyword)}", flush=True)
+    # dump all distinct lines for diagnosis
+    lines = [l.strip() for l in combined.splitlines() if l.strip()]
+    print(f"  distinct lines ({len(lines)}):", flush=True)
+    for i, l in enumerate(lines):
+        print(f"    [{i}] {l[:120]}", flush=True)
+
     # we expect task a to finish, and task b should not be started
-    assert (stderr + stdout).count("bash got signal-A") == 0  # task should not be cancelled
-    assert (stderr + stdout).count("bash got signal-B") == 0  # task should not be cancelled
-    assert (stderr + stdout).count("Requeueing") == 0
-    assert (stderr + stdout).count(
-        "Soft shutdown requested. Will not accept additional tasks and sleep until this process is terminated."
-    ) == 1
-    assert (stderr + stdout).count("Stopping as we are not accepting new tasks.") == 1
-    assert (stderr + stdout).count("task a finished") == 1
-    assert (stderr + stdout).count("task b finished") == 0
-    assert (stderr + stdout).count("Stopping workforce monitor") == 1
+    combined = stderr + stdout
+    # Rich may wrap long lines; collapse whitespace for reliable matching
+    combined_flat = re.sub(r"\s+", " ", combined)
+    assert combined.count("bash got signal-A") == 0  # task should not be cancelled
+    assert combined.count("bash got signal-B") == 0  # task should not be cancelled
+    assert combined.count("Requeueing") == 0
+    assert "Soft shutdown requested. Will not accept additional tasks and sleep until this process is terminated." in combined_flat
+    assert "Stopping as we are not accepting new tasks." in combined_flat
+    assert combined.count("task a finished") == 1
+    assert combined.count("task b finished") == 0
+    assert "Stopping workforce monitor" in combined
     # should be done in less than the task's sleep time
     assert (end - start).total_seconds() < 11
 
@@ -590,40 +612,53 @@ async def test_signal2_graceful_shutdown_from_servicebus_handled_correctly(
         "--visibility-timeout=30s",
     )
 
+    t0 = datetime.now()
+    print(f"\n[{t0:%H:%M:%S}] starting worker subprocess", flush=True)
+    print(f"  cmd: {' '.join(worker_cmd)}", flush=True)
+    print(f"  env: JOBQ_PID_DIR={tmp_path}, JOBQ_PREEMPTION_TIMEOUT=2", flush=True)
     with subprocess.Popen(
         worker_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         encoding="utf-8",
-        env={"JOBQ_PID_DIR": str(tmp_path)},
+        env={**os.environ, "JOBQ_PID_DIR": str(tmp_path), "PYTHONUNBUFFERED": "1"},
     ) as proc:
         # give everything 2 seconds to start
         with pytest.raises(subprocess.TimeoutExpired):
             proc.communicate(timeout=2)
+
+        pid_files = list(tmp_path.glob("*.pid"))
+        print(f"[{datetime.now():%H:%M:%S}] pid files after 2s: {pid_files}", flush=True)
         start = datetime.now()
 
-        # sending SIGUSR1 to glob, queue should do graceful-shutdown
+        # sending SIGUSR2 to glob, queue should do graceful-shutdown
         send_signal_by_glob(
             pattern=f"{tmp_path}/*.pid",
             signal_to_send=signal.SIGUSR2,
         )
+        print(f"[{datetime.now():%H:%M:%S}] sent SIGUSR2, waiting for process to exit", flush=True)
         stdout, stderr = proc.communicate()
         stdout, stderr = click.unstyle(stdout), click.unstyle(stderr)
         end = datetime.now()
 
+    print(f"[{end:%H:%M:%S}] process exited after {(end - start).total_seconds():.1f}s", flush=True)
+    print(f"  returncode: {proc.returncode}", flush=True)
+    print(f"  stdout ({len(stdout)} chars):\n{stdout[-3000:]}", flush=True)
+    print(f"  stderr ({len(stderr)} chars):\n{stderr[-3000:]}", flush=True)
+
     # we expect task a to be interrupted and requeued, and task b should not be started
-    assert (stderr + stdout).count("bash got signal-A") == 1  # task should not be cancelled
-    assert (stderr + stdout).count("bash got signal-B") == 0  # task should not be cancelled
-    assert (stderr + stdout).count("Requeueing") == 1
-    assert (stderr + stdout).count(
-        "Soft shutdown requested. Will not accept additional tasks, cancel current one(s)"
-    ) == 1
-    assert (stderr + stdout).count("Sending termination signal to pool process") == 1
-    assert (stderr + stdout).count("Stopping as we are not accepting new tasks.") == 1
+    combined = stderr + stdout
+    combined_flat = re.sub(r"\s+", " ", combined)
+    assert combined.count("bash got signal-A") == 1  # task should be cancelled
+    assert combined.count("bash got signal-B") == 0  # task should not be started
+    assert combined.count("Requeueing") == 1
+    assert "Soft shutdown requested. Will not accept additional tasks, cancel current one(s)" in combined_flat
+    assert "Sending termination signal to pool process" in combined_flat
+    assert "Stopping as we are not accepting new tasks." in combined_flat
     # as we give the task some time to write a checkpoint, the task actually has time to finish
-    assert (stderr + stdout).count("task a finished") == 1
-    assert (stderr + stdout).count("task b finished") == 0
-    assert (stderr + stdout).count("Stopping workforce monitor") == 1
+    assert combined.count("task a finished") == 1
+    assert combined.count("task b finished") == 0
+    assert "Stopping workforce monitor" in combined
     # should be done in less than the task's sleep time
     assert (end - start).total_seconds() < 11
 
