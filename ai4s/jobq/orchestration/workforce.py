@@ -682,17 +682,17 @@ class Workforce:
 
         When ``progress`` is True (default) a Rich progress bar is shown,
         matching :meth:`parallel_hire`'s output.
+
+        Each worker is built from a shallow copy of the prototype (see
+        :meth:`_build_worker`) so the submission does not mutate
+        ``self._job``. ``MLClient.jobs.create_or_update`` resolves
+        ``Command.compute`` and other short references in place, writing
+        canonical ARM ids back onto the submitted object; sharing the
+        prototype directly used to poison subsequent reads of
+        ``self._job.compute`` (e.g. :meth:`get_compute_infos`).
         """
         for i in self._progress_iter(range(1, n + 1), desc="Hiring", total=n, enabled=progress):
-            # not possible to deepcopy an azureml job, because class
-            # azure.ai.ml.entities._job.pipeline._io.attr_dict.InputsAttrDict can not be copied
-            job = self._job
-            job.environment_variables = job.environment_variables or {}
-            if acs := os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING") is not None:
-                job.environment_variables.setdefault("APPLICATIONINSIGHTS_CONNECTION_STRING", acs)
-            job.experiment_name = self._experiment_name
-            random_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
-            job.name = f"{self._experiment_name}-{random_id}"
+            job = self._build_worker()
             LOG.debug(f"Creating worker {job.name}")
             self._submit_job(job)
             if i % batch_size == 0:

@@ -177,6 +177,40 @@ class TestParallelHire:
         wf.parallel_hire(5, workers=2, progress=False)
         assert wf._aml_client.jobs.create_or_update.call_count == 5
 
+    def test_hire_does_not_mutate_prototype_compute(self) -> None:
+        """Regression: ``MLClient.jobs.create_or_update`` resolves
+        ``Command.compute`` in place on the object it is given, writing
+        the canonical ARM id back. ``hire()`` must therefore submit a
+        copy, not the prototype itself — otherwise ``self._job.compute``
+        flips to an ARM id after the first hire and breaks every
+        subsequent :meth:`get_compute_infos` call for the rest of the
+        process lifetime.
+        """
+        proto = MagicMock()
+        proto.compute = "mat-f16sv2-eastus"
+        proto.environment_variables = None
+        wf = _bare_workforce()
+        wf._job = proto
+
+        def simulate_sdk_resolve(job):
+            # Mimic the SDK: rewrite ``compute`` in place to the full ARM id.
+            job.compute = (
+                "/subscriptions/s/resourceGroups/rg/providers/"
+                "Microsoft.MachineLearningServices/workspaces/ws/"
+                "computes/mat-f16sv2-eastus"
+            )
+
+        wf._aml_client.jobs.create_or_update.side_effect = simulate_sdk_resolve
+
+        wf.hire(3, progress=False)
+
+        assert wf._aml_client.jobs.create_or_update.call_count == 3
+        assert proto.compute == "mat-f16sv2-eastus", (
+            "hire() must not pass the prototype to the SDK by reference; "
+            "doing so lets the SDK's in-place ARM-id resolution poison "
+            "self._job.compute for later get_compute_infos calls."
+        )
+
 
 class TestParallelLayoff:
     def test_sort_prefers_paused_then_queued_then_waiting(self) -> None:

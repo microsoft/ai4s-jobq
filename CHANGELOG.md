@@ -26,6 +26,19 @@ Fixes:
   includes the HTTP status code and reason so the same failure mode
   surfaces immediately in logs.
 
+* **``Workforce.hire`` no longer submits the prototype ``Command`` by
+  reference.** ``MLClient.jobs.create_or_update`` resolves short
+  references on the object it is given in place (``compute``,
+  ``environment``, ``code``), so sharing ``self._job`` across
+  submissions let the SDK mutate the prototype—the trigger that
+  poisoned ``self._job.compute`` for later ``get_compute_infos`` reads.
+  ``hire`` now routes through :meth:`_build_worker` like
+  ``parallel_hire``, using a shallow copy per submission. As a
+  side effect this fixes an operator-precedence bug where
+  ``APPLICATIONINSIGHTS_CONNECTION_STRING`` was propagated as the
+  ``True`` / ``False`` result of the presence check instead of the
+  actual connection string.
+
 
 3.9.0 (2026-04-23)
 ------------------
