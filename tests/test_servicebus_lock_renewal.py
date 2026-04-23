@@ -29,7 +29,6 @@ def _ts():
     return time.strftime("%H:%M:%S")
 
 
-
 @pytest.mark.live
 async def test_lock_renewal_failure_raises_lock_lost(sb_namespace, sb_queue, caplog):
     """Patch ``renew_lock`` to return 404 after the callback starts, simulating
@@ -99,9 +98,9 @@ async def test_lock_renewal_failure_raises_lock_lost(sb_namespace, sb_queue, cap
     # ── Assertions ──────────────────────────────────────────────────────
     assert callback_cancelled.is_set(), "Expected callback to be cancelled when lock was lost"
 
-    assert any(
-        "Lock lost" in r.message and "404" in r.message for r in caplog.records
-    ), "Expected lock-lost 404 log message"
+    assert any("Lock lost" in r.message and "404" in r.message for r in caplog.records), (
+        "Expected lock-lost 404 log message"
+    )
     assert any(
         "Lock lost for task" in r.message and "abandoning without settlement" in r.message
         for r in caplog.records
@@ -182,7 +181,9 @@ async def test_lock_loss_should_not_count_as_consecutive_failure(sb_namespace, s
         # TooManyFailuresException.  Since lock-lost messages return to
         # the queue, launch_workers will never drain it.  We use a timeout
         # to stop after enough iterations to prove correctness.
-        print(f"[{_ts()}] calling launch_workers (will timeout after enough iterations)", flush=True)
+        print(
+            f"[{_ts()}] calling launch_workers (will timeout after enough iterations)", flush=True
+        )
         try:
             await asyncio.wait_for(
                 launch_workers(

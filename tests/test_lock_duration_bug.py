@@ -36,12 +36,17 @@ successful renewal.
 
 import asyncio
 import json
+import time
 
 import pytest
 
 from ai4s.jobq import JobQ
 from ai4s.jobq.auth import get_token_credential
 from ai4s.jobq.backend.servicebus_rest import _parse_lock_duration
+
+
+def _ts():
+    return time.strftime("%H:%M:%S")
 
 
 @pytest.mark.live
@@ -51,20 +56,24 @@ async def test_lock_duration_drops_after_renewal(sb_namespace, sb_queue):
     """
     fqns = f"{sb_namespace}.servicebus.windows.net"
 
+    print(f"[{_ts()}] connecting to {sb_namespace}/{sb_queue}", flush=True)
     async with (
         get_token_credential() as credential,
         JobQ.from_service_bus(sb_queue, fqns=fqns, credential=credential) as jobq,
     ):
+        print(f"[{_ts()}] clearing queue and pushing task", flush=True)
         await jobq.clear()
         await jobq.push({"test": "lock_duration_bug"}, num_retries=0, reply_requested=False)
 
         rest_client = jobq._client._rest_client
         assert rest_client is not None
 
+        print(f"[{_ts()}] peek-locking message", flush=True)
         msg = await rest_client.peek_lock_message(timeout=10)
 
         # ── Initial lock duration from peek-lock ────────────────────────
         initial_duration = msg.lock_duration_seconds
+        print(f"[{_ts()}] initial lock_duration = {initial_duration:.1f}s", flush=True)
         assert initial_duration > 31, (
             f"Queue lock duration should be > 31 s (got {initial_duration:.1f} s). "
             f"The bug causes a drop to exactly 30 s — we need a queue "
@@ -72,8 +81,10 @@ async def test_lock_duration_drops_after_renewal(sb_namespace, sb_queue):
         )
 
         # ── Renew the lock once ─────────────────────────────────────────
+        print(f"[{_ts()}] renewing lock", flush=True)
         await asyncio.sleep(2)  # small delay so LockedUntilUtc would differ
         renewed_duration = await rest_client.renew_lock(msg.location_url)
+        print(f"[{_ts()}] renewed lock_duration = {renewed_duration:.1f}s", flush=True)
 
         # ── Verify the raw response is empty ────────────────────────────
         # Do a manual POST to inspect headers directly

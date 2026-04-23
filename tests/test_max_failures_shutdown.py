@@ -10,11 +10,16 @@ The process must exit (not hang) once the failure threshold is exceeded.
 import asyncio
 import shutil
 import subprocess
+import time
 
 import pytest
 
 from ai4s.jobq import JobQ
 from ai4s.jobq.auth import get_token_credential
+
+
+def _ts():
+    return time.strftime("%H:%M:%S")
 
 
 NUM_WORKERS = 8
@@ -84,10 +89,14 @@ async def test_max_failures_shutdown_servicebus_subprocess(sb_namespace, sb_queu
     """Push always-failing tasks to Service Bus, run ``ai4s-jobq worker`` as a
     real subprocess, and verify it exits cleanly instead of hanging.
     """
+    print(f"[{_ts()}] pushing failing tasks (exit 1)", flush=True)
     await _push_failing_tasks(sb_namespace, sb_queue, "exit 1")
 
+    print(f"[{_ts()}] starting worker subprocess", flush=True)
     result = await asyncio.to_thread(_run_worker, sb_namespace, sb_queue)
+    print(f"[{_ts()}] worker exited with code {result.returncode}", flush=True)
     _assert_clean_shutdown(result.stdout)
+    print(f"[{_ts()}] test_max_failures_shutdown_servicebus_subprocess PASSED", flush=True)
 
 
 @pytest.mark.live
@@ -99,7 +108,11 @@ async def test_max_failures_shutdown_with_background_process(sb_namespace, sb_qu
     # Start a long-running background process, then exit with failure.
     # The background sleep inherits stdout/stderr file descriptors from bash,
     # which can block the pipe reads in run_cmd_and_log_outputs.
+    print(f"[{_ts()}] pushing failing tasks (sleep 3600 & exit 1)", flush=True)
     await _push_failing_tasks(sb_namespace, sb_queue, "sleep 3600 & exit 1")
 
+    print(f"[{_ts()}] starting worker subprocess", flush=True)
     result = await asyncio.to_thread(_run_worker, sb_namespace, sb_queue)
+    print(f"[{_ts()}] worker exited with code {result.returncode}", flush=True)
     _assert_clean_shutdown(result.stdout)
+    print(f"[{_ts()}] test_max_failures_shutdown_with_background_process PASSED", flush=True)
