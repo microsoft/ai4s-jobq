@@ -2,6 +2,44 @@ CHANGELOG
 =========
 
 
+3.9.1 (2026-04-23)
+------------------
+
+Fixes:
+
+* **``Workforce.get_compute_infos`` accepts either a bare compute name
+  or a full ARM resource id on ``Command.compute``.** The ARM ``GET
+  /computes/{name}`` URL template requires the bare name, but the
+  attribute can legally hold either form: a user may configure it as a
+  full id, and ``MLClient.jobs.create_or_update`` rewrites a bare name
+  to the full id as a side effect of submission. Previously, every
+  workforce started returning ``RuntimeError("Failed to fetch cluster
+  information …")`` from its second tick onward because the URL
+  substitution produced a malformed double-nested path (``…/computes//
+  subscriptions/…/computes/name``). In
+  :class:`~ai4s.jobq.orchestration.multiregion_workforce.MultiRegionWorkforce`
+  the broken call was caught as ``assuming 0 capacity``, so autoscaling
+  silently stopped hiring for the rest of the process lifetime even
+  while hiring itself still worked. ``get_compute_infos`` now takes
+  the last ``/``-separated segment of ``Command.compute`` before
+  templating. The resulting ``RuntimeError`` on failure also now
+  includes the HTTP status code and reason so the same failure mode
+  surfaces immediately in logs.
+
+* **``Workforce.hire`` no longer submits the prototype ``Command`` by
+  reference.** ``MLClient.jobs.create_or_update`` resolves short
+  references on the object it is given in place (``compute``,
+  ``environment``, ``code``), so sharing ``self._job`` across
+  submissions let the SDK mutate the prototype—the trigger that
+  poisoned ``self._job.compute`` for later ``get_compute_infos`` reads.
+  ``hire`` now routes through :meth:`_build_worker` like
+  ``parallel_hire``, using a shallow copy per submission. As a
+  side effect this fixes an operator-precedence bug where
+  ``APPLICATIONINSIGHTS_CONNECTION_STRING`` was propagated as the
+  ``True`` / ``False`` result of the presence check instead of the
+  actual connection string.
+
+
 3.9.0 (2026-04-23)
 ------------------
 
