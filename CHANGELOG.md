@@ -1,13 +1,29 @@
 CHANGELOG
 =========
 
-
-3.9.1 (2026-04-23)
+3.9.2 (2026-04-24)
 ------------------
 
 Fixes:
 
-* **``Workforce.get_compute_infos`` accepts either a bare compute name
+* **Lock-loss no longer kills all running tasks.**
+  ``ProcessPool._kill_subprocesses`` previously sent SIGUSR1 to **every**
+  pool child when any single task was cancelled (for example, due to a
+  Service Bus message lock expiry).  This meant that one transient lock
+  failure would terminate all concurrently running tasks — not just the
+  affected one.  ``ProcessPool.submit()`` no longer calls
+  ``_kill_subprocesses`` on individual ``CancelledError``.  Instead, a
+  new ``Processor.shutdown()`` / ``ProcessPool.kill_all_subprocesses()``
+  method is called explicitly by the orchestration layer during
+  coordinated shutdown (preemption, time-limit).  Individual task
+  cancellations now only discard the cancelled task's result; other
+  tasks continue unaffected.
+
+
+3.9.1 (2026-04-23)
+------------------
+
+Fixes:* **``Workforce.get_compute_infos`` accepts either a bare compute name
   or a full ARM resource id on ``Command.compute``.** The ARM ``GET
   /computes/{name}`` URL template requires the bare name, but the
   attribute can legally hold either form: a user may configure it as a
