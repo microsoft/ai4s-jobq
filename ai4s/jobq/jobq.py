@@ -337,6 +337,11 @@ class JobQ:
                         # the callback so it can clean up (e.g. SIGTERM
                         # subprocesses).  Whatever the callback raises
                         # (WorkerCanceled, CancelledError, etc.) propagates.
+                        LOG.info(
+                            "Task %s: outer task cancelled (worker shutdown / preemption), "
+                            "cancelling callback.",
+                            task.id,
+                        )
                         lock_lost_task.cancel()
                         with suppress(asyncio.CancelledError):
                             await lock_lost_task
@@ -344,6 +349,10 @@ class JobQ:
                         await callback_task
                     if lock_lost_task in done:
                         # Lock was lost — cancel the callback and walk away.
+                        LOG.info(
+                            "Task %s: lock lost, cancelling callback.",
+                            task.id,
+                        )
                         callback_task.cancel()
                         with suppress(asyncio.CancelledError, WorkerCanceled, Exception):
                             await callback_task
