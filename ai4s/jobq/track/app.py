@@ -7,6 +7,7 @@ import dash_bootstrap_components as dbc
 from dash import Dash, html
 
 from .components import (
+    active_environments,
     active_workers,
     cpu_utilization,
     errors,
@@ -38,6 +39,7 @@ def run_with_default_queue(queue_name=None, debug=False, port=8050):
     )
 
     active_workers.register_callbacks(app)
+    active_environments.register_callbacks(app)
     queue_size.register_callbacks(app)
     tasks_starting.register_callbacks(app)
     tasks_completed.register_callbacks(app)

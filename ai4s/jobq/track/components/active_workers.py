@@ -188,6 +188,14 @@ def layout(default_queue=None):
                         },
                     ),
                     dcc.Graph(
+                        id="active-environments-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
                         id="queue-size-graph",
                         style={
                             "aspectRatio": "12 / 9",
