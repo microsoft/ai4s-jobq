@@ -446,7 +446,7 @@ def register_callbacks(app):
         fig.update_layout(
             title={"x": 0.5, "y": 0.95, "xanchor": "center", "yanchor": "top"},
             margin={"t": 50},
-            showlegend=by_env,
+            showlegend=False,
         )
 
         df["ActiveWorkers"] = pd.to_numeric(df["ActiveWorkers"], errors="coerce")
