@@ -277,7 +277,7 @@ def layout(default_queue=None):
                     dcc.Graph(
                         id="preemptions-by-env-graph",
                         style={
-                            "aspectRatio": "12 / 9",
+                            "aspectRatio": "10 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
                         },
@@ -285,7 +285,7 @@ def layout(default_queue=None):
                     dcc.Graph(
                         id="env-efficiency-graph",
                         style={
-                            "aspectRatio": "12 / 9",
+                            "aspectRatio": "10 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
                         },

@@ -101,7 +101,7 @@ def register_callbacks(app):
                 "xanchor": "center",
                 "yanchor": "top",
             },
-            margin={"t": 50, "l": 150},
+            margin={"t": 50, "l": 200},
             showlegend=False,
             yaxis_title="",
             xaxis_title="Tasks / Preemption",
