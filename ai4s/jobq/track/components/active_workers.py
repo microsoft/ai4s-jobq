@@ -280,6 +280,7 @@ def layout(default_queue=None):
                             "aspectRatio": "10 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
+                            "gridColumn": "span 2",
                         },
                     ),
                     dcc.Graph(
@@ -288,6 +289,7 @@ def layout(default_queue=None):
                             "aspectRatio": "10 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
+                            "gridColumn": "span 2",
                         },
                     ),
                     dcc.Graph(
