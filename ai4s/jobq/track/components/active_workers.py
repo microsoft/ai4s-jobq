@@ -325,26 +325,29 @@ def layout(default_queue=None):
                     dcc.Graph(
                         id="cpu-util-graph",
                         style={
-                            "aspectRatio": "16 / 9",
+                            "aspectRatio": "12 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
+                            "maxWidth": "600px",
                         },
                         config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="ram-util-graph",
                         style={
-                            "aspectRatio": "16 / 9",
+                            "aspectRatio": "12 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
+                            "maxWidth": "600px",
                         },
                         config={"displayModeBar": False},
                     ),
                 ],
                 style={
                     "display": "grid",
-                    "gridTemplateColumns": "1fr 1fr",
+                    "gridTemplateColumns": "repeat(auto-fit, minmax(400px, 1fr))",
                     "gap": "10px",
+                    "maxWidth": "1250px",
                 },
             ),
             html.H2("Errors"),
