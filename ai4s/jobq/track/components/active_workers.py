@@ -425,9 +425,30 @@ def layout(default_queue=None):
                     window.dispatchEvent(event);
                 });
 
-                // Inject CSS for expanded graphs
+                // Inject CSS for expanded graphs and expand buttons
                 var style = document.createElement('style');
                 style.textContent = `
+                .dash-graph {
+                    position: relative;
+                }
+                .expand-btn {
+                    position: absolute;
+                    top: 8px;
+                    right: 8px;
+                    z-index: 100;
+                    background: rgba(255,255,255,0.85);
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 16px;
+                    line-height: 1;
+                    padding: 4px 7px;
+                    opacity: 0;
+                    transition: opacity 0.2s;
+                }
+                .dash-graph:hover .expand-btn {
+                    opacity: 1;
+                }
                 .graph-expanded {
                     position: fixed !important;
                     top: 0 !important;
@@ -441,6 +462,9 @@ def layout(default_queue=None):
                     aspect-ratio: unset !important;
                     grid-column: unset !important;
                 }
+                .graph-expanded .expand-btn {
+                    opacity: 1;
+                }
                 .graph-expanded .js-plotly-plot,
                 .graph-expanded .plot-container,
                 .graph-expanded .plotly {
@@ -450,22 +474,36 @@ def layout(default_queue=None):
                 `;
                 document.head.appendChild(style);
 
-                // Double-click any graph to expand/collapse
-                document.addEventListener('dblclick', function(e) {
-                    var graph = e.target.closest('.js-plotly-plot');
-                    if (!graph) return;
-                    var container = graph.closest('.dash-graph');
-                    if (!container) return;
-                    container.classList.toggle('graph-expanded');
-                    // Trigger resize so plotly reflows
-                    setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 50);
-                });
+                // Add expand buttons to all graphs after they render
+                function addExpandButtons() {
+                    document.querySelectorAll('.dash-graph').forEach(function(container) {
+                        if (container.querySelector('.expand-btn')) return;
+                        var btn = document.createElement('button');
+                        btn.className = 'expand-btn';
+                        btn.innerHTML = '&#x26F6;';
+                        btn.title = 'Expand (Escape to close)';
+                        btn.addEventListener('click', function(e) {
+                            e.stopPropagation();
+                            container.classList.toggle('graph-expanded');
+                            btn.innerHTML = container.classList.contains('graph-expanded') ? '&#x2715;' : '&#x26F6;';
+                            setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 50);
+                        });
+                        container.appendChild(btn);
+                    });
+                }
+                // Run after initial render and on mutations
+                setTimeout(addExpandButtons, 1000);
+                new MutationObserver(addExpandButtons).observe(
+                    document.body, {childList: true, subtree: true}
+                );
 
                 document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
                         var expanded = document.querySelector('.graph-expanded');
                         if (expanded) {
                             expanded.classList.remove('graph-expanded');
+                            var btn = expanded.querySelector('.expand-btn');
+                            if (btn) btn.innerHTML = '&#x26F6;';
                             setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 50);
                         }
                     }
