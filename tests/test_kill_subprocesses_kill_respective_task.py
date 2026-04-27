@@ -31,10 +31,12 @@ receive SIGTERM (the undesired blast-radius behavior).
 """
 
 import asyncio
+import contextlib
 import os
 import tempfile
 import textwrap
 import time
+from pathlib import Path
 
 import pytest
 
@@ -79,13 +81,13 @@ async def test_kill_subprocesses_sends_sigterm_to_all_workers():
             tasks.append(task)
 
         # Wait for all tasks to actually start running in their pool children.
-        for attempt in range(20):
+        for _attempt in range(20):
             await asyncio.sleep(0.5)
             running = sum(
                 1
                 for i in range(NUM_POOL_WORKERS)
-                if os.path.exists(os.path.join(marker_dir, f"task_{i}.status"))
-                and open(os.path.join(marker_dir, f"task_{i}.status")).read().strip() == "RUNNING"
+                if Path(marker_dir, f"task_{i}.status").is_file()
+                and Path(marker_dir, f"task_{i}.status").read_text().strip() == "RUNNING"
             )
             if running == NUM_POOL_WORKERS:
                 break
@@ -98,25 +100,23 @@ async def test_kill_subprocesses_sends_sigterm_to_all_workers():
 
         # ── Cancel exactly ONE task (simulates lock-loss cancellation) ──
         tasks[0].cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, WorkerCanceled, RuntimeError):
             await tasks[0]
-        except (asyncio.CancelledError, WorkerCanceled, RuntimeError):
-            pass
         print(f"[{_ts()}] task_0 cancelled", flush=True)
 
         # ── Wait for the other tasks to settle ──────────────────────────
         for t in tasks[1:]:
-            try:
+            with contextlib.suppress(
+                asyncio.CancelledError, WorkerCanceled, RuntimeError, TimeoutError
+            ):
                 await asyncio.wait_for(t, timeout=TASK_DURATION_S + 10)
-            except (asyncio.CancelledError, WorkerCanceled, RuntimeError, TimeoutError):
-                pass
 
     # ── Read marker files ───────────────────────────────────────────────
     statuses = {}
     for i in range(NUM_POOL_WORKERS):
-        marker = os.path.join(marker_dir, f"task_{i}.status")
-        if os.path.exists(marker):
-            statuses[i] = open(marker).read().strip()
+        marker = Path(marker_dir, f"task_{i}.status")
+        if marker.is_file():
+            statuses[i] = marker.read_text().strip()
         else:
             statuses[i] = "MISSING"
     print(f"[{_ts()}] Task statuses: {statuses}", flush=True)

@@ -451,7 +451,6 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         loop = asyncio.get_running_loop()
 
         env = env or {}
-        ret = None
 
         with ExitStack() as stack:
             if bg_dirsync_to:
@@ -476,7 +475,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
                 raise
             if self._in_shutdown:
                 raise WorkerCanceled
-        return ty.cast("ResultType", ret)
+        return ret
 
     async def kill_all_subprocesses(self) -> None:
         """Coordinated shutdown: signal all pool children and wait for the pool to drain."""
