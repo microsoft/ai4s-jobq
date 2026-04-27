@@ -10,7 +10,7 @@ Fixes:
   ``ProcessPool._kill_subprocesses`` previously sent SIGUSR1 to **every**
   pool child when any single task was cancelled (for example, due to a
   Service Bus message lock expiry).  This meant that one transient lock
-  failure would terminate all concurrently running tasks — not just the
+  failure would terminate all concurrently running tasks—not just the
   affected one.  ``ProcessPool.submit()`` no longer calls
   ``_kill_subprocesses`` on individual ``CancelledError``.  Instead, a
   new ``Processor.shutdown()`` / ``ProcessPool.kill_all_subprocesses()``
