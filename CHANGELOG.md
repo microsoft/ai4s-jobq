@@ -12,6 +12,8 @@ Features:
   added time range presets (``6h``/``12h``/``24h``/``3d``/``7d``), configurable refresh interval,
   and a group-by toggle to switch between overall and per-environment
   breakdowns in Active Workers, CPU, RAM, Preemptions, and Tasks Started panels.
+  Disabled the Plotly toolbar on all graphs and added a per-graph expand button
+  (⛶) for fullscreen inspection (press Escape to close).
 
 * **New stat cards.**
   Added big-number stat cards showing succeeded/failed per day,
@@ -21,16 +23,21 @@ Features:
 * **Daily moving average panel.**
   New trend line showing a 24-hour rolling average of task completions and failures.
 
+* **Fan charts for resource utilization.**
+  Task runtimes, CPU utilization, and RAM utilization panels now render as fan
+  charts with percentile bands (p10–p90, p25–p75) when in overall grouping mode,
+  giving a clearer picture of distribution over time.
+
 * **Workforce monitoring section.**
   New dedicated section with panels for worker churn (arrivals vs departures),
-  worker lifetime distribution, preemptions by environment (top 20), and
-  environment efficiency (tasks completed vs preemptions scatter). Active
+  worker lifetime distribution, average time to preemption by environment
+  (top and bottom 10), and tasks-per-preemption efficiency ratio. Active
   workers and active environments panels moved into this section.
 
 * **Workspace auto-detection.**
-  The dashboard now infers the AML workspace from the selected queue and
-  displays it in the toolbar. All queries are filtered to the detected
-  workspace for accuracy.
+  The dashboard now detects all AML workspaces associated with the selected
+  queue and displays them in the toolbar. The workspace filter was removed from
+  data queries since a single queue can span multiple workspaces.
 
 Bug fixes:
 
@@ -40,6 +47,9 @@ Bug fixes:
 * Fixed failure double-counting caused by combining AppTraces and AppExceptions
   (each failure was counted twice).
 * Fixed date format bug (``%Y-%M-%D`` → ``%Y-%m-%d``).
+* Fixed pandas ``ChainedAssignmentError`` in the errors panel.
+* Fixed worker churn panel crash when the KQL response had fewer columns than
+  expected.
 
 
 3.9.0 (2026-04-23)
