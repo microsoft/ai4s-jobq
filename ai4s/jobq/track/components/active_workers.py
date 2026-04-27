@@ -39,18 +39,42 @@ def layout(default_queue=None):
             dcc.Store(id="workspace-store", data=""),
             html.Div(
                 [
-                    # Row 1: Queue selector (full width)
+                    # Row 1: Queue selector + workspace
                     html.Div(
                         [
-                            html.Label("Queue", style=_label_style),
-                            dcc.Dropdown(
-                                id="queue-dropdown",
-                                options=queue_options or [],  # type: ignore[arg-type]
-                                value=default_value,
-                                placeholder="Select a queue",
+                            html.Div(
+                                [
+                                    html.Label("Queue", style=_label_style),
+                                    dcc.Dropdown(
+                                        id="queue-dropdown",
+                                        options=queue_options or [],  # type: ignore[arg-type]
+                                        value=default_value,
+                                        placeholder="Select a queue",
+                                    ),
+                                ],
+                                style={"flex": "1", "minWidth": "250px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("Workspace", style=_label_style),
+                                    html.Div(
+                                        id="workspace-display",
+                                        children="detecting…",
+                                        style={
+                                            "fontSize": "13px",
+                                            "color": "#555",
+                                            "padding": "6px 0",
+                                        },
+                                    ),
+                                ],
+                                style={"marginLeft": "24px", "minWidth": "120px"},
                             ),
                         ],
-                        style={"marginBottom": "10px"},
+                        style={
+                            "display": "flex",
+                            "alignItems": "flex-end",
+                            "marginBottom": "10px",
+                        },
                     ),
                     # Row 2: Time range + refresh
                     html.Div(
@@ -487,11 +511,12 @@ def register_callbacks(app):
 
     @app.callback(
         Output("workspace-store", "data"),
+        Output("workspace-display", "children"),
         Input("queue-dropdown", "value"),
     )
     def resolve_workspace(queue):
         if not queue:
-            return ""
+            return "", "—"
         try:
             query = f"""
             AppTraces
@@ -502,7 +527,8 @@ def register_callbacks(app):
             """
             rows = run_query(query)
             if rows and rows[0]:
-                return rows[0][0]
+                ws = rows[0][0]
+                return ws, ws
         except Exception as e:
             LOG.warning(f"Failed to resolve workspace for queue {queue}: {e}")
-        return ""
+        return "", "—"
