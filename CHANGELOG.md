@@ -9,7 +9,7 @@ Features:
 
 * **Track dashboard improvements.**
   Redesigned the ``ai4s-jobq track`` dashboard toolbar with a cleaner layout,
-  added time range presets (6h/12h/24h/3d/7d), configurable refresh interval,
+  added time range presets (``6h``/``12h``/``24h``/``3d``/``7d``), configurable refresh interval,
   and a group-by toggle to switch between overall and per-environment
   breakdowns in Active Workers, CPU, RAM, Preemptions, and Tasks Started panels.
 
@@ -19,7 +19,7 @@ Features:
   average time to success, and average time to failure.
 
 * **Daily moving average panel.**
-  New trend line showing 24h rolling average of task completions and failures.
+  New trend line showing a 24-hour rolling average of task completions and failures.
 
 * **Workforce monitoring section.**
   New dedicated section with panels for worker churn (arrivals vs departures),
@@ -37,7 +37,7 @@ Bug fixes:
 * Fixed queue dropdown resetting to the CLI value on every callback refresh.
 * Fixed tasks completed/failed graph showing swapped colors (Succeeded was
   plotted as red, Failed as green).
-* Fixed failure double-counting caused by unioning AppTraces and AppExceptions
+* Fixed failure double-counting caused by combining AppTraces and AppExceptions
   (each failure was counted twice).
 * Fixed date format bug (``%Y-%M-%D`` → ``%Y-%m-%d``).
 

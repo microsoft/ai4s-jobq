@@ -187,7 +187,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="tasks-starting-graph",
@@ -196,7 +196,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="tasks-completed-graph",
@@ -205,7 +205,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="task-runtimes-graph",
@@ -214,7 +214,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="tasks-completed-trend-graph",
@@ -223,7 +223,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="preemption-events-graph",
@@ -232,7 +232,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                 ],
                 style={
@@ -255,7 +255,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="active-environments-graph",
@@ -264,7 +264,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="worker-churn-graph",
@@ -273,7 +273,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="worker-lifetime-graph",
@@ -282,7 +282,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="preemptions-by-env-graph",
@@ -292,7 +292,7 @@ def layout(default_queue=None):
                             "minWidth": "400px",
                             "gridColumn": "span 2",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="env-efficiency-graph",
@@ -302,7 +302,7 @@ def layout(default_queue=None):
                             "minWidth": "400px",
                             "gridColumn": "span 2",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="cpu-util-graph",
@@ -311,7 +311,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="ram-util-graph",
@@ -320,7 +320,7 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
-                    config={"displayModeBar": False},
+                        config={"displayModeBar": False},
                     ),
                 ],
                 style={
@@ -432,7 +432,6 @@ def layout(default_queue=None):
             ),
             dcc.Interval(id="interval", interval=60 * 1000, n_intervals=0),
             dcc.Interval(id="resize-interval", interval=500, n_intervals=0),
-
         ]
     )
 
