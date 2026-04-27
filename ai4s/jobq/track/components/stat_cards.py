@@ -140,8 +140,14 @@ def _render_stat_cards(
             return html.Div(content, style=style, title=tooltip)
         return html.Div(content, style=style)
 
+    attempt_tooltip = (
+        "Counts every task attempt, including retries. A task that fails "
+        "3 times then succeeds counts as 3 failed + 1 succeeded. "
+        "This matches the Grafana dashboard."
+    )
+
     worker_tooltip = (
-        "Tasks per worker-day = total tasks \u00f7 cumulative worker-days. "
+        "Task attempts per worker-day = total attempts \u00f7 cumulative worker-days. "
         "A worker-day is one worker running for 24h. "
         f"Total worker-days in window: {total_worker_days:.1f}. "
         "Workers with only a single event are counted as 15min active. "
@@ -150,8 +156,8 @@ def _render_stat_cards(
 
     return html.Div(
         [
-            stat_card(avg_succeeded, "Avg succeeded / day", "#28a745"),
-            stat_card(avg_failed, "Avg failed / day", "#dc3545"),
+            stat_card(avg_succeeded, "Succeeded / day", "#28a745", tooltip=attempt_tooltip),
+            stat_card(avg_failed, "Failed / day", "#dc3545", tooltip=attempt_tooltip),
             stat_card(
                 succeeded_per_wd,
                 "Succeeded / worker-day",
@@ -164,8 +170,18 @@ def _render_stat_cards(
                 "#fd7e14",
                 tooltip=worker_tooltip,
             ),
-            stat_card(total_succeeded, f"Total succeeded ({days:.0f}d)", "#28a745"),
-            stat_card(total_failed, f"Total failed ({days:.0f}d)", "#dc3545"),
+            stat_card(
+                total_succeeded,
+                f"Total succeeded ({days:.0f}d)",
+                "#28a745",
+                tooltip=attempt_tooltip,
+            ),
+            stat_card(
+                total_failed,
+                f"Total failed ({days:.0f}d)",
+                "#dc3545",
+                tooltip=attempt_tooltip,
+            ),
         ],
         style={
             "display": "flex",
