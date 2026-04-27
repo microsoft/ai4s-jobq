@@ -7,15 +7,22 @@ import dash_bootstrap_components as dbc
 from dash import Dash, html
 
 from .components import (
+    active_environments,
     active_workers,
     cpu_utilization,
+    env_efficiency,
     errors,
     preemption_events,
+    preemptions_by_env,
     queue_size,
     ram_utilization,
+    stat_cards,
     task_runtimes,
     tasks_completed,
+    tasks_completed_trend,
     tasks_starting,
+    worker_churn,
+    worker_lifetime,
 )
 
 
@@ -36,14 +43,21 @@ def run_with_default_queue(queue_name=None, debug=False, port=8050):
     )
 
     active_workers.register_callbacks(app)
+    active_environments.register_callbacks(app)
     queue_size.register_callbacks(app)
     tasks_starting.register_callbacks(app)
     tasks_completed.register_callbacks(app)
+    tasks_completed_trend.register_callbacks(app)
     task_runtimes.register_callbacks(app)
     cpu_utilization.register_callbacks(app)
     ram_utilization.register_callbacks(app)
     errors.register_callbacks(app)
     preemption_events.register_callbacks(app)
+    stat_cards.register_callbacks(app)
+    worker_churn.register_callbacks(app)
+    worker_lifetime.register_callbacks(app)
+    preemptions_by_env.register_callbacks(app)
+    env_efficiency.register_callbacks(app)
 
     def open_browser():
         webbrowser.open_new_tab(f"http://127.0.0.1:{port}/")

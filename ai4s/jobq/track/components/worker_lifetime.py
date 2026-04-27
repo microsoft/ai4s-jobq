@@ -15,7 +15,7 @@ LOG = logging.getLogger(__name__)
 
 def register_callbacks(app):
     @app.callback(
-        Output("queue-size-graph", "figure"),
+        Output("worker-lifetime-graph", "figure"),
         Input("interval", "n_intervals"),
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
@@ -32,33 +32,42 @@ def register_callbacks(app):
         end = datetime.utcnow()
 
         query = f"""
-        let dt = 15m;
+        let startTime = datetime({start.isoformat()});
+        let endTime = datetime({end.isoformat()});
         AppTraces
-        | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
+        | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
-        | where Message startswith "Worker is still running"
-        | project queue=tostring(Properties.queue), queue_size=todecimal(Properties.queue_size), TimeGenerated
-        | make-series QueueSize=avg(queue_size) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt
-        | mv-expand TimeGenerated, QueueSize
-        | project TimeGenerated=todatetime(TimeGenerated), QueueSize=todecimal(QueueSize)
+        | where isnotempty(Properties.worker_id)
+        | summarize FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated)
+            by worker_id=tostring(Properties.worker_id)
+        | extend LifetimeMinutes=datetime_diff('minute', LastSeen, FirstSeen)
+        | extend LifetimeMinutes=max_of(LifetimeMinutes, 1)
+        | project LifetimeMinutes
         """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeGenerated", "QueueSize"])
-        df["QueueSize"] = pd.to_numeric(df["QueueSize"], errors="coerce")
-        max_y = df["QueueSize"].max()
-        fig = px.line(df, x="TimeGenerated", y="QueueSize", title="Queue Size")
-        if max_y > 0:
-            fig.update_yaxes(range=[0, max_y * 1.1])
-        fig.update_yaxes(tickformat=".0f")
+        df = pd.DataFrame(rows, columns=["LifetimeMinutes"])
+        df["LifetimeMinutes"] = pd.to_numeric(df["LifetimeMinutes"], errors="coerce").fillna(0)
+
+        fig = px.histogram(
+            df,
+            x="LifetimeMinutes",
+            nbins=50,
+            labels={"LifetimeMinutes": "Lifetime (minutes)"},
+            color_discrete_sequence=["#4c78a8"],
+        )
         fig.update_layout(
             title={
-                "x": 0.5,  # Center the title
-                "y": 0.95,  # Move the title closer to the graph
+                "text": "Worker Lifetime Distribution",
+                "x": 0.5,
+                "y": 0.95,
                 "xanchor": "center",
                 "yanchor": "top",
             },
-            margin={"t": 50},  # Adjusted top margin to balance title placement
+            margin={"t": 50},
             showlegend=False,
+            yaxis_title="Workers",
+            xaxis_title="Lifetime (minutes)",
+            bargap=0.05,
         )
         return fig

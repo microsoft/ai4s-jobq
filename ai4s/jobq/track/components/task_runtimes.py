@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 from dash import Input, Output
 from dash.exceptions import PreventUpdate
 
@@ -21,8 +21,9 @@ def register_callbacks(app):
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
+        Input("workspace-store", "data"),
     )
-    def update_graph(n, start_date, start_time, queue):
+    def update_graph(n, start_date, start_time, queue, workspace):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -49,25 +50,81 @@ def register_callbacks(app):
         )
         for col in ["min", "q25", "median", "q75", "max", "mean"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-        df_long = df.melt(id_vars="TimeGenerated", var_name="statistic", value_name="value")
-        # solarized, with min/max in gray, q25/q75 in cyan, median in red, mean in black
-        color_map = {
-            "min": "#444444",  # gray
-            "q25": "#2aa198",  # cyan
-            "median": "#dc322f",  # red
-            "q75": "#2aa198",  # cyan
-            "max": "#888888",  # gray
-            "mean": "#000000",  # black
-        }
-        fig = px.line(
-            df_long,
-            x="TimeGenerated",
-            y="value",
-            color="statistic",
-            color_discrete_map=color_map,  # type: ignore[arg-type]
-            labels={"TimeGenerated": "Time", "value": "Runtime (seconds)"},
-            title="Task Runtimes",
-            markers=True,
+
+        x = df["TimeGenerated"]
+        band_color = "44, 127, 184"  # teal-blue base
+
+        fig = go.Figure()
+
+        # Band: min-max (lightest)
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=df["max"],
+                mode="lines",
+                line={"width": 0},
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=df["min"],
+                mode="lines",
+                line={"width": 0},
+                fill="tonexty",
+                fillcolor=f"rgba({band_color}, 0.12)",
+                name="min-max",
+                hoverinfo="skip",
+            )
+        )
+
+        # Band: q25-q75 (more opaque)
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=df["q75"],
+                mode="lines",
+                line={"width": 0},
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=df["q25"],
+                mode="lines",
+                line={"width": 0},
+                fill="tonexty",
+                fillcolor=f"rgba({band_color}, 0.30)",
+                name="p25-p75",
+                hoverinfo="skip",
+            )
+        )
+
+        # Line: median (solid, most prominent)
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=df["median"],
+                mode="lines+markers",
+                line={"color": f"rgb({band_color})", "width": 2},
+                marker={"size": 3},
+                name="median",
+            )
+        )
+
+        # Line: mean (dashed)
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=df["mean"],
+                mode="lines",
+                line={"color": "#333", "width": 1.5, "dash": "dash"},
+                name="mean",
+            )
         )
 
         # Format y-axis
@@ -78,18 +135,15 @@ def register_callbacks(app):
             title="Duration",
         )
 
-        for trace in fig.data:
-            if trace.name not in ("median", "mean"):  # type: ignore[attr-defined]
-                trace.update(mode="lines")
-
         fig.update_layout(
             title={
-                "x": 0.5,  # Center the title
-                "y": 0.95,  # Move the title closer to the graph
+                "text": "Task Runtimes",
+                "x": 0.5,
+                "y": 0.95,
                 "xanchor": "center",
                 "yanchor": "top",
             },
-            margin={"t": 50},  # Adjusted top margin to balance title placement
+            margin={"t": 50},
             showlegend=False,
         )
         return fig

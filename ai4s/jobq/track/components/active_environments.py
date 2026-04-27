@@ -15,7 +15,7 @@ LOG = logging.getLogger(__name__)
 
 def register_callbacks(app):
     @app.callback(
-        Output("queue-size-graph", "figure"),
+        Output("active-environments-graph", "figure"),
         Input("interval", "n_intervals"),
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
@@ -36,29 +36,20 @@ def register_callbacks(app):
         AppTraces
         | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
         | where Properties.queue == "{queue}"
-        | where Message startswith "Worker is still running"
-        | project queue=tostring(Properties.queue), queue_size=todecimal(Properties.queue_size), TimeGenerated
-        | make-series QueueSize=avg(queue_size) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt
-        | mv-expand TimeGenerated, QueueSize
-        | project TimeGenerated=todatetime(TimeGenerated), QueueSize=todecimal(QueueSize)
+        | where isnotempty(Properties.environment)
+        | summarize ActiveEnvironments=dcount(tostring(Properties.environment))
+            by bin(TimeGenerated, dt)
+        | sort by TimeGenerated asc
         """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeGenerated", "QueueSize"])
-        df["QueueSize"] = pd.to_numeric(df["QueueSize"], errors="coerce")
-        max_y = df["QueueSize"].max()
-        fig = px.line(df, x="TimeGenerated", y="QueueSize", title="Queue Size")
-        if max_y > 0:
-            fig.update_yaxes(range=[0, max_y * 1.1])
-        fig.update_yaxes(tickformat=".0f")
+        df = pd.DataFrame(rows, columns=["TimeGenerated", "ActiveEnvironments"])
+        df["ActiveEnvironments"] = pd.to_numeric(df["ActiveEnvironments"], errors="coerce")
+        fig = px.area(df, x="TimeGenerated", y="ActiveEnvironments", title="Active Environments")
         fig.update_layout(
-            title={
-                "x": 0.5,  # Center the title
-                "y": 0.95,  # Move the title closer to the graph
-                "xanchor": "center",
-                "yanchor": "top",
-            },
-            margin={"t": 50},  # Adjusted top margin to balance title placement
+            title={"x": 0.5, "y": 0.95, "xanchor": "center", "yanchor": "top"},
+            margin={"t": 50},
             showlegend=False,
+            yaxis={"rangemode": "tozero"},
         )
         return fig
