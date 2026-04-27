@@ -129,11 +129,7 @@ def _render_stat_cards(
     }
 
     def stat_card(value, label, color, tooltip=None):
-        display_value = (
-            value
-            if isinstance(value, str)
-            else (f"{value:.1f}" if isinstance(value, float) else str(value))
-        )
+        display_value = value if isinstance(value, str) else _fmt_number(value)
         content = [
             html.Div(
                 display_value,
@@ -232,3 +228,26 @@ def _fmt_duration(seconds: float) -> str:
         return f"{m:.1f}m"
     h = seconds / 3600
     return f"{h:.1f}h"
+
+
+def _fmt_number(value) -> str:
+    """Format a number with k/M suffixes for readability."""
+    if isinstance(value, int):
+        if abs(value) >= 1_000_000:
+            return f"{value / 1_000_000:.1f}M"
+        if abs(value) >= 10_000:
+            return f"{value / 1_000:.1f}k"
+        if abs(value) >= 1_000:
+            return f"{value:,}"
+        return str(value)
+    # float
+    v = float(value)
+    if abs(v) >= 1_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    if abs(v) >= 10_000:
+        return f"{v / 1_000:.1f}k"
+    if abs(v) >= 1_000:
+        return f"{v:.0f}"
+    if abs(v) >= 10:
+        return f"{v:.1f}"
+    return f"{v:.2f}"
