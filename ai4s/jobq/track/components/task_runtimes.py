@@ -21,8 +21,9 @@ def register_callbacks(app):
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
+        Input("workspace-store", "data"),
     )
-    def update_graph(n, start_date, start_time, queue):
+    def update_graph(n, start_date, start_time, queue, workspace):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -31,12 +32,17 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
+        ws_filter = ""
+        if workspace:
+            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
+
         dt = adaptive_interval(end - start)
 
         query = f"""
         AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
+        {ws_filter}
             | where Message startswith "Completed"
             | extend runtime=todecimal(Properties.duration_s)
             | summarize min=min(runtime), q25=percentile(runtime, 25), median=percentile(runtime, 50), q75=percentile(runtime, 75), max=max(runtime) , mean=avg(runtime) by bin(TimeGenerated, {dt})

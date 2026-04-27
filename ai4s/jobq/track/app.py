@@ -13,8 +13,10 @@ from .components import (
     preemption_events,
     queue_size,
     ram_utilization,
+    stat_cards,
     task_runtimes,
     tasks_completed,
+    tasks_completed_trend,
     tasks_starting,
 )
 
@@ -39,11 +41,13 @@ def run_with_default_queue(queue_name=None, debug=False, port=8050):
     queue_size.register_callbacks(app)
     tasks_starting.register_callbacks(app)
     tasks_completed.register_callbacks(app)
+    tasks_completed_trend.register_callbacks(app)
     task_runtimes.register_callbacks(app)
     cpu_utilization.register_callbacks(app)
     ram_utilization.register_callbacks(app)
     errors.register_callbacks(app)
     preemption_events.register_callbacks(app)
+    stat_cards.register_callbacks(app)
 
     def open_browser():
         webbrowser.open_new_tab(f"http://127.0.0.1:{port}/")

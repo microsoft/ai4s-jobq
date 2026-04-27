@@ -20,8 +20,9 @@ def register_callbacks(app):
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
+        Input("workspace-store", "data"),
     )
-    def update_graph(n, start_date, start_time, queue):
+    def update_graph(n, start_date, start_time, queue, workspace):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -30,11 +31,16 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
+        ws_filter = ""
+        if workspace:
+            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
+
         query = f"""
         let dt = 15m;
         AppTraces
         | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
         | where Properties.queue == "{queue}"
+        {ws_filter}
         | where Message startswith "Worker is still running"
         | project queue=tostring(Properties.queue), queue_size=todecimal(Properties.queue_size), TimeGenerated
         | make-series QueueSize=avg(queue_size) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt

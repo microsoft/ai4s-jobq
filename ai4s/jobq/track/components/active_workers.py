@@ -14,6 +14,8 @@ from ..utils.log_analytics import get_distinct_values, run_query
 
 LOG = logging.getLogger(__name__)
 
+_label_style = {"fontSize": "11px", "color": "#888", "marginBottom": "2px", "display": "block"}
+
 
 def layout(default_queue=None):
     now = datetime.utcnow()
@@ -33,31 +35,105 @@ def layout(default_queue=None):
     return html.Div(
         [
             dcc.Location(id="url", refresh=False),
-            html.H2(id="current-queue"),
+            html.Span(id="current-queue", style={"display": "none"}),
+            dcc.Store(id="workspace-store", data=""),
             html.Div(
                 [
-                    dcc.DatePickerSingle(
-                        id="date-picker-single",
-                        date=default_start.date().strftime("%Y-%M-%D"),
-                        display_format="YYYY-MM-DD",
+                    # Row 1: Queue selector (full width)
+                    html.Div(
+                        [
+                            html.Label("Queue", style=_label_style),
+                            dcc.Dropdown(
+                                id="queue-dropdown",
+                                options=queue_options or [],  # type: ignore[arg-type]
+                                value=default_value,
+                                placeholder="Select a queue",
+                            ),
+                        ],
+                        style={"marginBottom": "10px"},
                     ),
-                    dcc.Input(
-                        id="start-time",
-                        type="text",
-                        value=default_start.strftime("%H:%M"),
-                        placeholder="HH:MM",
-                        style={"marginLeft": "10px"},
-                    ),
-                    dcc.Dropdown(
-                        id="queue-dropdown",
-                        options=queue_options or [],  # type: ignore[arg-type]
-                        value=default_value,
-                        placeholder="Select a queue",
-                        style={"width": "400px"},
+                    # Row 2: Time range + refresh
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Label("Time range", style=_label_style),
+                                    dbc.RadioItems(
+                                        id="time-range-preset",
+                                        options=[
+                                            {"label": "6h", "value": "6h"},
+                                            {"label": "12h", "value": "12h"},
+                                            {"label": "24h", "value": "24h"},
+                                            {"label": "3d", "value": "3d"},
+                                            {"label": "7d", "value": "7d"},
+                                        ],
+                                        value="24h",
+                                        inline=True,
+                                        className="btn-group",
+                                        inputClassName="btn-check",
+                                        labelClassName="btn btn-outline-secondary btn-sm",
+                                        labelCheckedClassName="active",
+                                    ),
+                                ],
+                                style={"marginRight": "24px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("From", style=_label_style),
+                                    html.Div(
+                                        [
+                                            dcc.DatePickerSingle(
+                                                id="date-picker-single",
+                                                date=default_start.date().strftime("%Y-%m-%d"),
+                                                display_format="YYYY-MM-DD",
+                                            ),
+                                            dcc.Input(
+                                                id="start-time",
+                                                type="text",
+                                                value=default_start.strftime("%H:%M"),
+                                                placeholder="HH:MM",
+                                                className="form-control form-control-sm",
+                                                style={"width": "70px", "marginLeft": "6px"},
+                                            ),
+                                        ],
+                                        style={"display": "flex", "alignItems": "center"},
+                                    ),
+                                ],
+                                style={"marginRight": "24px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("Refresh", style=_label_style),
+                                    dcc.Dropdown(
+                                        id="refresh-interval-dropdown",
+                                        options=[  # type: ignore[arg-type]
+                                            {"label": "Off", "value": 0},
+                                            {"label": "30s", "value": 30000},
+                                            {"label": "1m", "value": 60000},
+                                            {"label": "5m", "value": 300000},
+                                        ],
+                                        value=60000,
+                                        clearable=False,
+                                        style={"width": "80px"},
+                                    ),
+                                ],
+                            ),
+                        ],
+                        style={
+                            "display": "flex",
+                            "alignItems": "flex-end",
+                            "flexWrap": "wrap",
+                            "gap": "4px",
+                        },
                     ),
                 ],
-                style={"marginBottom": "20px"},
+                style={
+                    "padding": "12px 16px",
+                    "marginBottom": "16px",
+                    "borderBottom": "1px solid #dee2e6",
+                },
             ),
+            html.Div(id="stat-cards-container", style={"marginBottom": "8px"}),
             html.Div(
                 [
                     dcc.Graph(
@@ -118,6 +194,14 @@ def layout(default_queue=None):
                     ),
                     dcc.Graph(
                         id="preemption-events-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
+                        id="tasks-completed-trend-graph",
                         style={
                             "aspectRatio": "12 / 9",
                             "margin": "5px",
@@ -255,8 +339,9 @@ def register_callbacks(app):
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
+        Input("workspace-store", "data"),
     )
-    def update_graph(n, start_date, start_time, queue):
+    def update_graph(n, start_date, start_time, queue, workspace):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -265,12 +350,17 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
+        ws_filter = ""
+        if workspace:
+            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
+
         dt = "15m"
         query = f"""
         let dt = {dt};
         AppTraces
         | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
         | where Properties.queue == "{queue}"
+        {ws_filter}
         | where Message startswith "Worker is still running"
         | project queue=tostring(Properties.queue), environment=tostring(coalesce(Properties.environment, "<empty>")), worker_id=tostring(Properties.worker_id), TimeGenerated
         | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
@@ -335,3 +425,48 @@ def register_callbacks(app):
     )
     def update_url_from_dropdown(value, date, start_time):
         return f"?queue={value}&date={date}&start_time={start_time}"
+
+    @app.callback(
+        Output("date-picker-single", "date", allow_duplicate=True),
+        Output("start-time", "value", allow_duplicate=True),
+        Input("time-range-preset", "value"),
+        prevent_initial_call=True,
+    )
+    def apply_time_preset(preset):
+        now = datetime.utcnow()
+        durations = {"6h": 6, "12h": 12, "24h": 24, "3d": 72, "7d": 168}
+        hours = durations.get(preset, 24)
+        start = now - timedelta(hours=hours)
+        return start.date().isoformat(), start.strftime("%H:%M")
+
+    @app.callback(
+        Output("interval", "interval"),
+        Output("interval", "disabled"),
+        Input("refresh-interval-dropdown", "value"),
+    )
+    def update_refresh_interval(value):
+        if not value:
+            return 86_400_000, True
+        return value, False
+
+    @app.callback(
+        Output("workspace-store", "data"),
+        Input("queue-dropdown", "value"),
+    )
+    def resolve_workspace(queue):
+        if not queue:
+            return ""
+        try:
+            query = f"""
+            AppTraces
+            | where Properties.queue == "{queue}"
+            | where isnotempty(Properties.azureml_workspace_name)
+            | take 1
+            | project tostring(Properties.azureml_workspace_name)
+            """
+            rows = run_query(query)
+            if rows and rows[0]:
+                return rows[0][0]
+        except Exception as e:
+            LOG.warning(f"Failed to resolve workspace for queue {queue}: {e}")
+        return ""

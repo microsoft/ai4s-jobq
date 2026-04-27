@@ -21,15 +21,20 @@ def register_callbacks(app):
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
+        Input("workspace-store", "data"),
     )
-    def update_graph(n, start_date, start_time, queue):
+    def update_graph(n, start_date, start_time, queue, workspace):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
             LOG.error(f"Error parsing dates: {e}")
             raise PreventUpdate from e
 
-        end = datetime.now()
+        end = datetime.utcnow()
+
+        ws_filter = ""
+        if workspace:
+            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
 
         dt = adaptive_interval(end - start)
 
@@ -38,6 +43,7 @@ def register_callbacks(app):
         AppTraces
         | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
         | where Properties.queue == "{queue}"
+        {ws_filter}
         | where Message startswith "Preemption event detected"
         | project environment=tostring(Properties.environment), TimeGenerated
         | make-series NumEvents=count() default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
