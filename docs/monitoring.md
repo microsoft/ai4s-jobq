@@ -38,10 +38,19 @@ pip install ai4s-jobq[track]
 ai4s-jobq <queue-spec> track <LOG_ANALYTICS_WORKSPACE_ID>
 ```
 
-The ``LOG_ANALYTICS_WORKSPACE_ID`` is the UUID of the Log Analytics workspace
-backing your Application Insights instance (find it in the "Overview" tab on
-the Azure portal). You can also set it via the ``JOBQ_LA_WORKSPACE`` environment
-variable.
+The workspace argument accepts several formats:
+
+- A Log Analytics **workspace UUID** (from the "Overview" tab in the portal)
+- A Log Analytics **workspace name** (resolved via Azure Resource Graph)
+- A full **resource ID** (``/subscriptions/.../providers/.../workspaces/...``)
+- An Application Insights **instrumentation key** (UUID, resolved to the
+  backing workspace)
+- An Application Insights **connection string**
+  (``InstrumentationKey=...;...``)
+
+You can also set it via the ``JOBQ_LA_WORKSPACE`` environment variable, or let
+it be inferred from ``APPLICATIONINSIGHTS_CONNECTION_STRING`` or
+``APPLICATIONINSIGHTS_INSTRUMENTATIONKEY`` if set.
 
 The dashboard opens in your browser and includes:
 
