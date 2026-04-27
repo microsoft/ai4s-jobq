@@ -40,14 +40,15 @@ def register_callbacks(app):
         | where Properties.queue == "{queue}"
         | where isnotempty(Properties.worker_id)
         | summarize FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated)
-            by worker_id=tostring(Properties.worker_id)
-        | extend ArrivalBin=bin(FirstSeen, dt), DepartureBin=bin(LastSeen, dt);
-        WorkerLifetimes
-        | summarize Arrived=count() by TimeBin=ArrivalBin
-        | join kind=fullouter (
-            WorkerLifetimes
-            | summarize Departed=count() by TimeBin=DepartureBin
-        ) on TimeBin
+            by worker_id=tostring(Properties.worker_id);
+        let Arrivals = WorkerLifetimes
+        | where FirstSeen >= startTime
+        | summarize Arrived=count() by TimeBin=bin(FirstSeen, dt);
+        let Departures = WorkerLifetimes
+        | where LastSeen < endTime - dt
+        | summarize Departed=count() by TimeBin=bin(LastSeen, dt);
+        Arrivals
+        | join kind=fullouter Departures on TimeBin
         | extend
             T=coalesce(TimeBin, TimeBin1),
             A=coalesce(Arrived, 0),
