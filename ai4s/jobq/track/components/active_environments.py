@@ -42,14 +42,9 @@ def register_callbacks(app):
         | where Properties.queue == "{queue}"
         {ws_filter}
         | where isnotempty(Properties.environment)
-        | project environment=tostring(Properties.environment), TimeGenerated
-        | make-series ActiveEnvironments=dcount(environment) default=0
-            on TimeGenerated
-            from floor(datetime({start.isoformat()}), dt)
-            to floor(datetime({end.isoformat()}), dt)
-            step dt
-        | mv-expand ActiveEnvironments, TimeGenerated
-        | project TimeGenerated=todatetime(TimeGenerated), ActiveEnvironments=toint(ActiveEnvironments)
+        | summarize ActiveEnvironments=dcount(tostring(Properties.environment))
+            by bin(TimeGenerated, dt)
+        | sort by TimeGenerated asc
         """
 
         rows = run_query(query)
