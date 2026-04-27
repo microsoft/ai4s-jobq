@@ -325,7 +325,7 @@ def layout(default_queue=None):
                     dcc.Graph(
                         id="cpu-util-graph",
                         style={
-                            "aspectRatio": "12 / 9",
+                            "aspectRatio": "16 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
                         },
@@ -334,7 +334,7 @@ def layout(default_queue=None):
                     dcc.Graph(
                         id="ram-util-graph",
                         style={
-                            "aspectRatio": "12 / 9",
+                            "aspectRatio": "16 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
                         },
@@ -343,7 +343,7 @@ def layout(default_queue=None):
                 ],
                 style={
                     "display": "grid",
-                    "gridTemplateColumns": "repeat(auto-fit, minmax(400px, 1fr))",
+                    "gridTemplateColumns": "1fr 1fr",
                     "gap": "10px",
                 },
             ),
