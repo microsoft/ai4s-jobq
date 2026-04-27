@@ -447,12 +447,8 @@ def register_callbacks(app):
             title={"x": 0.5, "y": 0.95, "xanchor": "center", "yanchor": "top"},
             margin={"t": 50},
             showlegend=False,
+            yaxis={"rangemode": "tozero"},
         )
-
-        df["ActiveWorkers"] = pd.to_numeric(df["ActiveWorkers"], errors="coerce")
-        max_y = df["ActiveWorkers"].max()
-        if max_y > 0:
-            fig.update_yaxes(range=[0, max_y * 1.1])
 
         current_queue_text = f"{queue}" if queue else "No queue selected"
 
