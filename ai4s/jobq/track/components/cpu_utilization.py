@@ -33,10 +33,6 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         by_env = group_by == "environment"
         dt = adaptive_interval(end - start)
 
@@ -45,7 +41,6 @@ def register_callbacks(app):
             AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | where Message startswith "Worker is still running"
             | extend environment=tostring(coalesce(Properties.environment, "<empty>")), CpuUtilization=todecimal(Properties.cpu_util)
             | summarize CpuUtilization=avg(CpuUtilization) by bin(TimeGenerated, {dt}), environment
@@ -59,7 +54,6 @@ def register_callbacks(app):
             AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | where Message startswith "Worker is still running"
             | extend CpuUtilization=todecimal(Properties.cpu_util)
             | summarize CpuUtilization=avg(CpuUtilization) by bin(TimeGenerated, {dt})

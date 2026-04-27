@@ -35,16 +35,11 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         tid = "72f988bf-86f1-41af-91ab-2d7cd011db47"
         query = f"""
         AppExceptions
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | where InnermostMessage has "Failure"
             | extend TaskId = tostring(Properties.task_id),
                      Duration=todecimal(Properties.duration_s),

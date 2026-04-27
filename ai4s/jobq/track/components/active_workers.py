@@ -449,10 +449,6 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         by_env = group_by == "environment"
         dt = "15m"
 
@@ -462,7 +458,6 @@ def register_callbacks(app):
             AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | where Message startswith "Worker is still running"
             | project environment=tostring(coalesce(Properties.environment, "<empty>")), worker_id=tostring(Properties.worker_id), TimeGenerated
             | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
@@ -475,7 +470,6 @@ def register_callbacks(app):
             AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | where Message startswith "Worker is still running"
             | project worker_id=tostring(Properties.worker_id), TimeGenerated
             | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt
@@ -574,13 +568,16 @@ def register_callbacks(app):
             AppTraces
             | where Properties.queue == "{queue}"
             | where isnotempty(Properties.azureml_workspace_name)
-            | take 1
-            | project tostring(Properties.azureml_workspace_name)
+            | summarize by ws=tostring(Properties.azureml_workspace_name)
+            | project ws
             """
             rows = run_query(query)
-            if rows and rows[0]:
-                ws = rows[0][0]
-                return ws, ws
+            if rows:
+                workspaces = [r[0] for r in rows if r[0]]
+                if workspaces:
+                    # Use first workspace for queue filtering; show all in display
+                    display = ", ".join(sorted(workspaces))
+                    return workspaces[0], display
         except Exception as e:
             LOG.warning(f"Failed to resolve workspace for queue {queue}: {e}")
         return "", "—"

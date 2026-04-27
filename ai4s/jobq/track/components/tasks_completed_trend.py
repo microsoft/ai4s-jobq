@@ -32,10 +32,6 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         dt = adaptive_interval(end - start)
         query = f"""
         let dt = {dt};
@@ -44,7 +40,6 @@ def register_callbacks(app):
         AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
-        {ws_filter}
         | where Message startswith "Completed task" or Message startswith "Failure for task"
         | extend Result = case(
               Message startswith "Failure for task", "Failed",

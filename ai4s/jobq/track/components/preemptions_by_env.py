@@ -31,10 +31,6 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         n_each = 10
         # Avg time from worker first-seen to preemption, per environment.
         # Workers that were never preempted are excluded.
@@ -44,7 +40,6 @@ def register_callbacks(app):
         let WorkerStarts = AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
-        {ws_filter}
         | where isnotempty(Properties.worker_id)
         | summarize WorkerStart=min(TimeGenerated)
             by worker_id=tostring(Properties.worker_id),
@@ -52,7 +47,6 @@ def register_callbacks(app):
         let PreemptionTimes = AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
-        {ws_filter}
         | where Properties.event == "preemption_detected"
         | extend worker_id=tostring(Properties.worker_id),
                  environment=tostring(Properties.environment)

@@ -33,10 +33,6 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         by_env = group_by == "environment"
         dt = adaptive_interval(end - start)
 
@@ -45,7 +41,6 @@ def register_callbacks(app):
             AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | extend environment=tostring(coalesce(Properties.environment, "<empty>")), MemoryUtilization=todecimal(Properties.memory_util)
             | summarize MemoryUtilization=max(MemoryUtilization) by bin(TimeGenerated, {dt}), environment
             | project TimeGenerated, MemoryUtilization, environment
@@ -58,7 +53,6 @@ def register_callbacks(app):
             AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | extend MemoryUtilization=todecimal(Properties.memory_util)
             | summarize MemoryUtilization=max(MemoryUtilization) by bin(TimeGenerated, {dt})
             | project TimeGenerated, MemoryUtilization

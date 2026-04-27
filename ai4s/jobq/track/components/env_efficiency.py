@@ -31,24 +31,18 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         query = f"""
         let startTime = datetime({start.isoformat()});
         let endTime = datetime({end.isoformat()});
         let Tasks = AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
-        {ws_filter}
         | where Message startswith "Completed task"
         | extend environment = tostring(Properties.environment)
         | summarize Completed=count() by environment;
         let Preemptions = AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
-        {ws_filter}
         | where Properties.event == "preemption_detected"
         | extend environment = tostring(Properties.environment)
         | summarize Preemptions=count() by environment;

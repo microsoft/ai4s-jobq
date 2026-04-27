@@ -29,10 +29,6 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         # Single query: task totals + avg durations + worker-days
         query = f"""
         let startTime = datetime({start.isoformat()});
@@ -40,7 +36,6 @@ def register_callbacks(app):
         let TaskEvents = AppTraces
           | where TimeGenerated between (startTime .. endTime)
           | where Properties.queue == "{queue}"
-          {ws_filter}
           | where Message startswith "Completed task" or Message startswith "Failure for task"
           | extend Result = case(
                 Message startswith "Failure for task", "Failed",
@@ -57,7 +52,6 @@ def register_callbacks(app):
         let WorkerDays = AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
-        {ws_filter}
         | where isnotempty(Properties.worker_id)
         | summarize
             FirstSeen=min(TimeGenerated),

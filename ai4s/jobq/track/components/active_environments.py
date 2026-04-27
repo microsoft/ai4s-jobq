@@ -31,16 +31,11 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         query = f"""
         let dt = 15m;
         AppTraces
         | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
         | where Properties.queue == "{queue}"
-        {ws_filter}
         | where isnotempty(Properties.environment)
         | summarize ActiveEnvironments=dcount(tostring(Properties.environment))
             by bin(TimeGenerated, dt)

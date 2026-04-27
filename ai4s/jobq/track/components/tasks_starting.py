@@ -33,10 +33,6 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         by_env = group_by == "environment"
         dt = adaptive_interval(end - start)
 
@@ -46,7 +42,6 @@ def register_callbacks(app):
             AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | where Properties.event == "task_start"
             | project environment=tostring(Properties.environment), TimeGenerated
             | make-series TasksStarted=count() default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
@@ -61,7 +56,6 @@ def register_callbacks(app):
             AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-            {ws_filter}
             | where Properties.event == "task_start"
             | project TimeGenerated
             | make-series TasksStarted=count() default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt

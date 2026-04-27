@@ -31,17 +31,12 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
-        ws_filter = ""
-        if workspace:
-            ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
-
         query = f"""
         let startTime = datetime({start.isoformat()});
         let endTime = datetime({end.isoformat()});
         AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
-        {ws_filter}
         | where isnotempty(Properties.worker_id)
         | summarize FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated)
             by worker_id=tostring(Properties.worker_id)
