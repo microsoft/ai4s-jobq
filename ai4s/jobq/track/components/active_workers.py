@@ -443,25 +443,28 @@ def layout(default_queue=None):
                 var style = document.createElement('style');
                 style.textContent = `
                 .dash-graph {
-                    position: relative;
+                    position: relative !important;
+                    overflow: visible !important;
                 }
                 .expand-btn {
                     position: absolute;
-                    top: 4px;
-                    right: 4px;
-                    z-index: 100;
-                    background: #f8f8f8;
-                    border: 1px solid #ddd;
-                    border-radius: 3px;
+                    top: 8px;
+                    right: 8px;
+                    z-index: 1000;
+                    background: rgba(255, 255, 255, 0.9);
+                    border: 1px solid #bbb;
+                    border-radius: 4px;
                     cursor: pointer;
-                    font-size: 13px;
+                    font-size: 16px;
                     line-height: 1;
-                    padding: 3px 6px;
-                    color: #666;
+                    padding: 4px 8px;
+                    color: #555;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
                 }
                 .expand-btn:hover {
-                    background: #eee;
-                    color: #333;
+                    background: #fff;
+                    color: #111;
+                    border-color: #888;
                 }
                 .graph-expanded {
                     position: fixed !important;
@@ -502,7 +505,8 @@ def layout(default_queue=None):
                         container.appendChild(btn);
                     });
                 }
-                setTimeout(addExpandButtons, 1000);
+                setTimeout(addExpandButtons, 2000);
+                setTimeout(addExpandButtons, 5000);
                 new MutationObserver(addExpandButtons).observe(
                     document.body, {childList: true, subtree: true}
                 );
