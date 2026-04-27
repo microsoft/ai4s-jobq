@@ -57,7 +57,7 @@ def register_callbacks(app):
         """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeGenerated", "Failed", "Succeeded"])
+        df = pd.DataFrame(rows, columns=["TimeGenerated", "Succeeded", "Failed"])
         df["Failed"] = pd.to_numeric(df["Failed"], errors="coerce")
         df["Succeeded"] = pd.to_numeric(df["Succeeded"], errors="coerce")
         fig = px.bar(

@@ -56,7 +56,7 @@ def register_callbacks(app):
         """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeGenerated", "Failed", "Succeeded"])
+        df = pd.DataFrame(rows, columns=["TimeGenerated", "Succeeded", "Failed"])
         df["Failed"] = pd.to_numeric(df["Failed"], errors="coerce").fillna(0)
         df["Succeeded"] = pd.to_numeric(df["Succeeded"], errors="coerce").fillna(0)
         df = df.sort_values("TimeGenerated").reset_index(drop=True)
