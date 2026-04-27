@@ -2,6 +2,40 @@ CHANGELOG
 =========
 
 
+3.10.0 (2026-04-28)
+-------------------
+
+Features:
+
+* **Track dashboard improvements.**
+  Redesigned the ``ai4s-jobq track`` dashboard toolbar with a cleaner layout,
+  added time range presets (6h/12h/24h/3d/7d), configurable refresh interval,
+  and a group-by toggle to switch between overall and per-environment
+  breakdowns in Active Workers, CPU, RAM, Preemptions, and Tasks Started panels.
+
+* **New stat cards.**
+  Added big-number stat cards showing succeeded/failed per day,
+  succeeded/failed per worker-day (normalized for worker uptime),
+  average time to success, and average time to failure.
+
+* **Daily moving average panel.**
+  New trend line showing 24h rolling average of task completions and failures.
+
+* **Workspace auto-detection.**
+  The dashboard now infers the AML workspace from the selected queue and
+  displays it in the toolbar. All queries are filtered to the detected
+  workspace for accuracy.
+
+Bug fixes:
+
+* Fixed queue dropdown resetting to the CLI value on every callback refresh.
+* Fixed tasks completed/failed graph showing swapped colors (Succeeded was
+  plotted as red, Failed as green).
+* Fixed failure double-counting caused by unioning AppTraces and AppExceptions
+  (each failure was counted twice).
+* Fixed date format bug (``%Y-%M-%D`` → ``%Y-%m-%d``).
+
+
 3.9.0 (2026-04-23)
 ------------------
 
