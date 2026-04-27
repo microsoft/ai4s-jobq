@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-from dash import Input, Output, State, dash_table, dcc, html, no_update
+from dash import Input, Output, State, dash_table, dcc, html
 from dash.exceptions import PreventUpdate
 
 from ..utils.log_analytics import get_distinct_values, run_query
@@ -509,47 +509,49 @@ def register_callbacks(app):
     @app.callback(
         Output("workspace-store", "data"),
         Output("workspace-display", "children"),
-        Output("queue-dropdown", "options"),
         Input("queue-dropdown", "value"),
     )
     def resolve_workspace(queue):
-        workspace = ""
-        display = "—"
-        if queue:
-            try:
-                query = f"""
-                AppTraces
-                | where Properties.queue == "{queue}"
-                | where isnotempty(Properties.azureml_workspace_name)
-                | take 1
-                | project tostring(Properties.azureml_workspace_name)
-                """
-                rows = run_query(query)
-                if rows and rows[0]:
-                    workspace = rows[0][0]
-                    display = workspace
-            except Exception as e:
-                LOG.warning(f"Failed to resolve workspace for queue {queue}: {e}")
+        if not queue:
+            return "", "—"
+        try:
+            query = f"""
+            AppTraces
+            | where Properties.queue == "{queue}"
+            | where isnotempty(Properties.azureml_workspace_name)
+            | take 1
+            | project tostring(Properties.azureml_workspace_name)
+            """
+            rows = run_query(query)
+            if rows and rows[0]:
+                ws = rows[0][0]
+                return ws, ws
+        except Exception as e:
+            LOG.warning(f"Failed to resolve workspace for queue {queue}: {e}")
+        return "", "—"
 
-        # Filter queue list to same workspace (or show all if unknown)
-        if workspace:
-            try:
-                q = f"""
-                AppTraces
-                | where isnotempty(Properties.queue)
-                | where Properties.azureml_workspace_name == "{workspace}"
-                | summarize LastSeen=max(TimeGenerated) by queue=tostring(Properties.queue)
-                | sort by LastSeen desc
-                | project queue
-                """
-                rows = run_query(q)
-                options = [{"label": r[0], "value": r[0]} for r in rows]
-                if queue and queue not in [o["value"] for o in options]:
-                    options.insert(0, {"label": queue, "value": queue})
-            except Exception as e:
-                LOG.warning(f"Failed to list queues for workspace {workspace}: {e}")
-                options = no_update
-        else:
-            options = no_update
-
-        return workspace, display, options
+    @app.callback(
+        Output("queue-dropdown", "options"),
+        Input("workspace-store", "data"),
+        State("queue-dropdown", "value"),
+    )
+    def update_queue_options(workspace, current_queue):
+        if not workspace:
+            raise PreventUpdate
+        try:
+            q = f"""
+            AppTraces
+            | where isnotempty(Properties.queue)
+            | where Properties.azureml_workspace_name == "{workspace}"
+            | summarize LastSeen=max(TimeGenerated) by queue=tostring(Properties.queue)
+            | sort by LastSeen desc
+            | project queue
+            """
+            rows = run_query(q)
+            options = [{"label": r[0], "value": r[0]} for r in rows]
+            if current_queue and current_queue not in [o["value"] for o in options]:
+                options.insert(0, {"label": current_queue, "value": current_queue})
+            return options
+        except Exception as e:
+            LOG.warning(f"Failed to list queues for workspace {workspace}: {e}")
+            raise PreventUpdate from e
