@@ -66,10 +66,9 @@ def register_callbacks(app):
 
         df["TimeGenerated"] = pd.to_datetime(df["TimeGenerated"]).dt.strftime("%Y-%m-%d %H:%M")
         df["Duration"] = df["Duration"].astype(float)
-        df["Exception"].replace("", np.nan, inplace=True)
-        df["Exception"] = df["Exception"].fillna(df["ExceptionType"])
+        df["Exception"] = df["Exception"].replace("", np.nan).fillna(df["ExceptionType"])
         df["TaskId"] = df.apply(lambda row: f"[{row['TaskId']}]({row['URL']})", axis=1)
-        df.drop(columns=["ExceptionType", "URL"], inplace=True)
+        df = df.drop(columns=["ExceptionType", "URL"])
 
         columns = [
             {"name": "Time", "id": "TimeGenerated", "type": "datetime"},
