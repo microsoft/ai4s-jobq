@@ -424,8 +424,52 @@ def layout(default_queue=None):
                     const event = new Event('resize');
                     window.dispatchEvent(event);
                 });
+
+                // Double-click any graph to expand/collapse
+                document.addEventListener('dblclick', function(e) {
+                    var graph = e.target.closest('.js-plotly-plot');
+                    if (!graph) return;
+                    var container = graph.closest('.dash-graph');
+                    if (!container) return;
+                    container.classList.toggle('graph-expanded');
+                    // Trigger resize so plotly reflows
+                    setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 50);
+                });
+
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        var expanded = document.querySelector('.graph-expanded');
+                        if (expanded) {
+                            expanded.classList.remove('graph-expanded');
+                            setTimeout(function() { window.dispatchEvent(new Event('resize')); }, 50);
+                        }
+                    }
+                });
                 """,
                 type="text/javascript",
+            ),
+            html.Style(
+                """
+                .graph-expanded {
+                    position: fixed !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    width: 100vw !important;
+                    height: 100vh !important;
+                    z-index: 10000 !important;
+                    background: white !important;
+                    margin: 0 !important;
+                    padding: 10px !important;
+                    aspect-ratio: unset !important;
+                    grid-column: unset !important;
+                }
+                .graph-expanded .js-plotly-plot,
+                .graph-expanded .plot-container,
+                .graph-expanded .plotly {
+                    width: 100% !important;
+                    height: 100% !important;
+                }
+                """
             ),
         ]
     )
