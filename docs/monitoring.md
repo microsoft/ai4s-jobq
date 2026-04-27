@@ -30,11 +30,34 @@ You can query the logs in App Insights or the connected Log Analytics workspace 
 
 ### JobQ track
 
-You can run ``ai4s-jobq {queue spec} track {workspace_id}``. This will open a local http server that runs
-common queries repeatedly and visualizes the results as graphs in your browser.
-Note that the ``workspace_id`` is *not* the resource ID but the UUID of the workspace that you can
-find in the "Overview" tab of your Log Analytics workspace instance on the azure portal.
-You can also set this via the environment variable ``LOG_ANALYTICS_WORKSPACE_ID`` and omit it on the command line.
+The built-in dashboard provides a live view of queue activity, worker health,
+and resource utilization. Install the optional dependencies and run:
+
+```bash
+pip install ai4s-jobq[track]
+ai4s-jobq <queue-spec> track <LOG_ANALYTICS_WORKSPACE_ID>
+```
+
+The ``LOG_ANALYTICS_WORKSPACE_ID`` is the UUID of the Log Analytics workspace
+backing your Application Insights instance (find it in the "Overview" tab on
+the Azure portal). You can also set it via the ``JOBQ_LA_WORKSPACE`` environment
+variable.
+
+The dashboard opens in your browser and includes:
+
+- **Stat cards**—succeeded/failed per day, per worker-day, avg time to
+  success/failure
+- **Task panels**—queue size, tasks starting, tasks completed/failed, task
+  runtimes (fan chart with percentile bands), daily moving average, preemption
+  events
+- **Workforce section**—active workers (stacked area), active environments,
+  worker churn, worker lifetime distribution, time-to-preemption and
+  tasks-per-preemption by environment, CPU and RAM utilization (fan charts)
+- **Errors section**—recent error messages with stack traces
+
+Use the toolbar to select a queue, adjust the time range, toggle between
+overall and per-environment grouping, and change the refresh interval. Click
+the ⛶ button on any graph to expand it to fullscreen.
 
 
 ### Grafana dashboard
