@@ -33,7 +33,7 @@ def register_callbacks(app):
         if workspace:
             ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
 
-        # Single query: task totals + worker-days (active time per worker summed)
+        # Single query: task totals + avg durations + worker-days
         query = f"""
         let startTime = datetime({start.isoformat()});
         let endTime = datetime({end.isoformat()});
@@ -45,12 +45,15 @@ def register_callbacks(app):
           | extend Result = case(
                 Message startswith "Failure for task", "Failed",
                 "Succeeded"
-            )
-          | project TimeGenerated, Result;
+            ),
+            duration_s = todouble(Properties.duration_s)
+          | project TimeGenerated, Result, duration_s;
         let Totals = TaskEvents
         | summarize
             TotalSucceeded=countif(Result == "Succeeded"),
-            TotalFailed=countif(Result == "Failed");
+            TotalFailed=countif(Result == "Failed"),
+            AvgSucceededDuration=avgif(duration_s, Result == "Succeeded"),
+            AvgFailedDuration=avgif(duration_s, Result == "Failed");
         let WorkerDays = AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
@@ -64,7 +67,7 @@ def register_callbacks(app):
         | summarize TotalWorkerDays = sum(ActiveHours) / 24.0;
         Totals | extend placeholder=1
         | join kind=inner (WorkerDays | extend placeholder=1) on placeholder
-        | project TotalSucceeded, TotalFailed, TotalWorkerDays
+        | project TotalSucceeded, TotalFailed, AvgSucceededDuration, AvgFailedDuration, TotalWorkerDays
         """
 
         rows = run_query(query)
@@ -72,9 +75,12 @@ def register_callbacks(app):
             row = rows[0]
             total_succeeded = int(row[0] or 0)
             total_failed = int(row[1] or 0)
-            total_worker_days = float(row[2] or 0)
+            avg_succeeded_duration = float(row[2] or 0)
+            avg_failed_duration = float(row[3] or 0)
+            total_worker_days = float(row[4] or 0)
         else:
             total_succeeded = total_failed = 0
+            avg_succeeded_duration = avg_failed_duration = 0.0
             total_worker_days = 0.0
 
         days = max(1, (end - start).total_seconds() / 86400)
@@ -96,6 +102,8 @@ def register_callbacks(app):
             succeeded_per_wd,
             failed_per_wd,
             total_worker_days,
+            avg_succeeded_duration,
+            avg_failed_duration,
         )
 
 
@@ -108,6 +116,8 @@ def _render_stat_cards(
     succeeded_per_wd,
     failed_per_wd,
     total_worker_days,
+    avg_succeeded_duration,
+    avg_failed_duration,
 ):
     """Render the stat cards as Bootstrap-styled cards."""
     card_style = {
@@ -119,9 +129,14 @@ def _render_stat_cards(
     }
 
     def stat_card(value, label, color, tooltip=None):
+        display_value = (
+            value
+            if isinstance(value, str)
+            else (f"{value:.1f}" if isinstance(value, float) else str(value))
+        )
         content = [
             html.Div(
-                f"{value:.1f}" if isinstance(value, float) else str(value),
+                display_value,
                 style={
                     "fontSize": "28px",
                     "fontWeight": "bold",
@@ -154,6 +169,8 @@ def _render_stat_cards(
         "Normalizes for workers starting/stopping at different times."
     )
 
+    duration_tooltip = "Average wall-clock time from task start to completion/failure."
+
     return html.Div(
         [
             stat_card(avg_succeeded, "Succeeded / day", "#28a745", tooltip=attempt_tooltip),
@@ -169,6 +186,18 @@ def _render_stat_cards(
                 "Failed / worker-day",
                 "#fd7e14",
                 tooltip=worker_tooltip,
+            ),
+            stat_card(
+                _fmt_duration(avg_succeeded_duration),
+                "Avg time to success",
+                "#28a745",
+                tooltip=duration_tooltip,
+            ),
+            stat_card(
+                _fmt_duration(avg_failed_duration),
+                "Avg time to failure",
+                "#dc3545",
+                tooltip=duration_tooltip,
             ),
             stat_card(
                 total_succeeded,
@@ -190,3 +219,16 @@ def _render_stat_cards(
             "marginBottom": "16px",
         },
     )
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Format seconds into a human-readable duration string."""
+    if seconds <= 0:
+        return "—"
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    if seconds < 3600:
+        m = seconds / 60
+        return f"{m:.1f}m"
+    h = seconds / 3600
+    return f"{h:.1f}h"
