@@ -22,8 +22,9 @@ def register_callbacks(app):
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
         Input("workspace-store", "data"),
+        Input("group-by-toggle", "value"),
     )
-    def update_graph(n, start_date, start_time, queue, workspace):
+    def update_graph(n, start_date, start_time, queue, workspace, group_by):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -36,40 +37,52 @@ def register_callbacks(app):
         if workspace:
             ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
 
+        by_env = group_by == "environment"
         dt = adaptive_interval(end - start)
 
-        query = f"""
-        let dt = {dt};
-        AppTraces
-        | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
-        | where Properties.queue == "{queue}"
-        {ws_filter}
-        | where Message startswith "Preemption event detected"
-        | project environment=tostring(Properties.environment), TimeGenerated
-        | make-series NumEvents=count() default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
-| mv-expand NumEvents, TimeGenerated
-        | project TimeGenerated=todatetime(TimeGenerated), environment=tostring(environment), NumEvents=todecimal(NumEvents)
-        """
+        if by_env:
+            query = f"""
+            let dt = {dt};
+            AppTraces
+            | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
+            | where Properties.queue == "{queue}"
+            {ws_filter}
+            | where Message startswith "Preemption event detected"
+            | project environment=tostring(Properties.environment), TimeGenerated
+            | make-series NumEvents=count() default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
+            | mv-expand NumEvents, TimeGenerated
+            | project TimeGenerated=todatetime(TimeGenerated), environment=tostring(environment), NumEvents=todecimal(NumEvents)
+            """
+            rows = run_query(query)
+            df = pd.DataFrame(rows, columns=["TimeGenerated", "environment", "NumEvents"])
+        else:
+            query = f"""
+            let dt = {dt};
+            AppTraces
+            | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
+            | where Properties.queue == "{queue}"
+            {ws_filter}
+            | where Message startswith "Preemption event detected"
+            | project TimeGenerated
+            | make-series NumEvents=count() default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt
+            | mv-expand NumEvents, TimeGenerated
+            | project TimeGenerated=todatetime(TimeGenerated), NumEvents=todecimal(NumEvents)
+            """
+            rows = run_query(query)
+            df = pd.DataFrame(rows, columns=["TimeGenerated", "NumEvents"])
 
-        rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeGenerated", "environment", "NumEvents"])
         df["NumEvents"] = pd.to_numeric(df["NumEvents"], errors="coerce")
         fig = px.bar(
             df,
             x="TimeGenerated",
             y="NumEvents",
-            color="environment",
+            color="environment" if by_env else None,
             title=f"Preemptions per {dt}",
         )
         fig.update_yaxes(tickformat=".0f")
         fig.update_layout(
-            title={
-                "x": 0.5,  # Center the title
-                "y": 0.95,  # Move the title closer to the graph
-                "xanchor": "center",
-                "yanchor": "top",
-            },
-            margin={"t": 50},  # Adjusted top margin to balance title placement
-            showlegend=False,
+            title={"x": 0.5, "y": 0.95, "xanchor": "center", "yanchor": "top"},
+            margin={"t": 50},
+            showlegend=by_env,
         )
         return fig

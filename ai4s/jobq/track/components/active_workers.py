@@ -117,6 +117,25 @@ def layout(default_queue=None):
                                         style={"width": "80px"},
                                     ),
                                 ],
+                                style={"marginRight": "24px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("Group by", style=_label_style),
+                                    dbc.RadioItems(
+                                        id="group-by-toggle",
+                                        options=[
+                                            {"label": "Overall", "value": "overall"},
+                                            {"label": "Environment", "value": "environment"},
+                                        ],
+                                        value="overall",
+                                        inline=True,
+                                        className="btn-group",
+                                        inputClassName="btn-check",
+                                        labelClassName="btn btn-outline-secondary btn-sm",
+                                        labelCheckedClassName="active",
+                                    ),
+                                ],
                             ),
                         ],
                         style={
@@ -340,8 +359,9 @@ def register_callbacks(app):
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
         Input("workspace-store", "data"),
+        Input("group-by-toggle", "value"),
     )
-    def update_graph(n, start_date, start_time, queue, workspace):
+    def update_graph(n, start_date, start_time, queue, workspace, group_by):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -354,38 +374,54 @@ def register_callbacks(app):
         if workspace:
             ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
 
+        by_env = group_by == "environment"
         dt = "15m"
-        query = f"""
-        let dt = {dt};
-        AppTraces
-        | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
-        | where Properties.queue == "{queue}"
-        {ws_filter}
-        | where Message startswith "Worker is still running"
-        | project queue=tostring(Properties.queue), environment=tostring(coalesce(Properties.environment, "<empty>")), worker_id=tostring(Properties.worker_id), TimeGenerated
-        | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
-        | mv-expand TimeGenerated, ActiveWorkers
-        | project TimeGenerated=todatetime(TimeGenerated), environment=tostring(environment), ActiveWorkers=todecimal(ActiveWorkers)
-        """
+
+        if by_env:
+            query = f"""
+            let dt = {dt};
+            AppTraces
+            | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
+            | where Properties.queue == "{queue}"
+            {ws_filter}
+            | where Message startswith "Worker is still running"
+            | project environment=tostring(coalesce(Properties.environment, "<empty>")), worker_id=tostring(Properties.worker_id), TimeGenerated
+            | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
+            | mv-expand TimeGenerated, ActiveWorkers
+            | project TimeGenerated=todatetime(TimeGenerated), environment=tostring(environment), ActiveWorkers=todecimal(ActiveWorkers)
+            """
+        else:
+            query = f"""
+            let dt = {dt};
+            AppTraces
+            | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
+            | where Properties.queue == "{queue}"
+            {ws_filter}
+            | where Message startswith "Worker is still running"
+            | project worker_id=tostring(Properties.worker_id), TimeGenerated
+            | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt
+            | mv-expand TimeGenerated, ActiveWorkers
+            | project TimeGenerated=todatetime(TimeGenerated), ActiveWorkers=todecimal(ActiveWorkers)
+            """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeGenerated", "environment", "ActiveWorkers"])
-        fig = px.line(
-            df,
-            x="TimeGenerated",
-            y="ActiveWorkers",
-            color="environment",
-            title="Active Workers",
-        )
+        if by_env:
+            df = pd.DataFrame(rows, columns=["TimeGenerated", "environment", "ActiveWorkers"])
+            fig = px.line(
+                df,
+                x="TimeGenerated",
+                y="ActiveWorkers",
+                color="environment",
+                title="Active Workers",
+            )
+        else:
+            df = pd.DataFrame(rows, columns=["TimeGenerated", "ActiveWorkers"])
+            fig = px.line(df, x="TimeGenerated", y="ActiveWorkers", title="Active Workers")
+
         fig.update_layout(
-            title={
-                "x": 0.5,  # Center the title
-                "y": 0.95,  # Move the title closer to the graph
-                "xanchor": "center",
-                "yanchor": "top",
-            },
-            margin={"t": 50},  # Adjusted top margin to balance title placement
-            showlegend=False,
+            title={"x": 0.5, "y": 0.95, "xanchor": "center", "yanchor": "top"},
+            margin={"t": 50},
+            showlegend=by_env,
         )
 
         df["ActiveWorkers"] = pd.to_numeric(df["ActiveWorkers"], errors="coerce")

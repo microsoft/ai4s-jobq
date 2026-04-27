@@ -22,8 +22,9 @@ def register_callbacks(app):
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
         Input("workspace-store", "data"),
+        Input("group-by-toggle", "value"),
     )
-    def update_graph(n, start_date, start_time, queue, workspace):
+    def update_graph(n, start_date, start_time, queue, workspace, group_by):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -36,42 +37,51 @@ def register_callbacks(app):
         if workspace:
             ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
 
+        by_env = group_by == "environment"
         dt = adaptive_interval(end - start)
 
-        query = f"""
-        AppTraces
+        if by_env:
+            query = f"""
+            AppTraces
             | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
             | where Properties.queue == "{queue}"
-        {ws_filter}
+            {ws_filter}
             | where Message startswith "Worker is still running"
-            | extend queue=tostring(Properties.queue), environment=tostring(coalesce(Properties.environment, "<empty>")), CpuUtilization=todecimal(Properties.cpu_util)
+            | extend environment=tostring(coalesce(Properties.environment, "<empty>")), CpuUtilization=todecimal(Properties.cpu_util)
             | summarize CpuUtilization=avg(CpuUtilization) by bin(TimeGenerated, {dt}), environment
             | project TimeGenerated, CpuUtilization, environment
             | sort by TimeGenerated asc
-        """
-        rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeGenerated", "CpuUtilization", "environment"])
+            """
+            rows = run_query(query)
+            df = pd.DataFrame(rows, columns=["TimeGenerated", "CpuUtilization", "environment"])
+        else:
+            query = f"""
+            AppTraces
+            | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
+            | where Properties.queue == "{queue}"
+            {ws_filter}
+            | where Message startswith "Worker is still running"
+            | extend CpuUtilization=todecimal(Properties.cpu_util)
+            | summarize CpuUtilization=avg(CpuUtilization) by bin(TimeGenerated, {dt})
+            | project TimeGenerated, CpuUtilization
+            | sort by TimeGenerated asc
+            """
+            rows = run_query(query)
+            df = pd.DataFrame(rows, columns=["TimeGenerated", "CpuUtilization"])
+
         df["CpuUtilization"] = 100.0 * pd.to_numeric(df["CpuUtilization"], errors="coerce")
         fig = px.line(
             df,
             x="TimeGenerated",
             y="CpuUtilization",
-            color="environment",
+            color="environment" if by_env else None,
             title="Average CPU Utilization",
             labels={"CpuUtilization": "CPU Utilization (%)", "TimeGenerated": "Time"},
         )
-        fig.update_yaxes(
-            title_text="CPU Utilization (%)",
-            range=[0, 100],  # Assuming CPU utilization is between 0% and 100%
-        )
+        fig.update_yaxes(title_text="CPU Utilization (%)", range=[0, 100])
         fig.update_layout(
-            title={
-                "x": 0.5,  # Center the title
-                "y": 0.95,  # Move the title closer to the graph
-                "xanchor": "center",
-                "yanchor": "top",
-            },
-            margin={"t": 50},  # Adjusted top margin to balance title placement
-            showlegend=False,
+            title={"x": 0.5, "y": 0.95, "xanchor": "center", "yanchor": "top"},
+            margin={"t": 50},
+            showlegend=by_env,
         )
         return fig
