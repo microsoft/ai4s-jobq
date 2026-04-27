@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-from dash import Input, Output, dash_table, dcc, html
+from dash import Input, Output, State, dash_table, dcc, html
 from dash.exceptions import PreventUpdate
 
 from ..utils.log_analytics import get_distinct_values, run_query
@@ -313,7 +313,7 @@ def register_callbacks(app):
         Output("date-picker-single", "date"),
         Output("start-time", "value"),
         Input("url", "search"),
-        Input("queue-dropdown", "value"),
+        State("queue-dropdown", "value"),
         prevent_initial_call=True,
     )
     def update_dropdown_from_url(search, current_queue):
