@@ -425,6 +425,31 @@ def layout(default_queue=None):
                     window.dispatchEvent(event);
                 });
 
+                // Inject CSS for expanded graphs
+                var style = document.createElement('style');
+                style.textContent = `
+                .graph-expanded {
+                    position: fixed !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    width: 100vw !important;
+                    height: 100vh !important;
+                    z-index: 10000 !important;
+                    background: white !important;
+                    margin: 0 !important;
+                    padding: 10px !important;
+                    aspect-ratio: unset !important;
+                    grid-column: unset !important;
+                }
+                .graph-expanded .js-plotly-plot,
+                .graph-expanded .plot-container,
+                .graph-expanded .plotly {
+                    width: 100% !important;
+                    height: 100% !important;
+                }
+                `;
+                document.head.appendChild(style);
+
                 // Double-click any graph to expand/collapse
                 document.addEventListener('dblclick', function(e) {
                     var graph = e.target.closest('.js-plotly-plot');
@@ -447,29 +472,6 @@ def layout(default_queue=None):
                 });
                 """,
                 type="text/javascript",
-            ),
-            html.Style(
-                """
-                .graph-expanded {
-                    position: fixed !important;
-                    top: 0 !important;
-                    left: 0 !important;
-                    width: 100vw !important;
-                    height: 100vh !important;
-                    z-index: 10000 !important;
-                    background: white !important;
-                    margin: 0 !important;
-                    padding: 10px !important;
-                    aspect-ratio: unset !important;
-                    grid-column: unset !important;
-                }
-                .graph-expanded .js-plotly-plot,
-                .graph-expanded .plot-container,
-                .graph-expanded .plotly {
-                    width: 100% !important;
-                    height: 100% !important;
-                }
-                """
             ),
         ]
     )
