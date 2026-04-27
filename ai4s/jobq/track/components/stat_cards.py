@@ -37,9 +37,7 @@ def register_callbacks(app):
         query = f"""
         let startTime = datetime({start.isoformat()});
         let endTime = datetime({end.isoformat()});
-        let TaskEvents = union
-        (
-          AppTraces
+        let TaskEvents = AppTraces
           | where TimeGenerated between (startTime .. endTime)
           | where Properties.queue == "{queue}"
           {ws_filter}
@@ -48,17 +46,7 @@ def register_callbacks(app):
                 Message startswith "Failure for task", "Failed",
                 "Succeeded"
             )
-          | project TimeGenerated, Result
-        ),
-        (
-          AppExceptions
-          | where TimeGenerated between (startTime .. endTime)
-          | where Properties.queue == "{queue}"
-          {ws_filter}
-          | where Properties.event == "task_failure"
-          | extend Result = "Failed"
-          | project TimeGenerated, Result
-        );
+          | project TimeGenerated, Result;
         let Totals = TaskEvents
         | summarize
             TotalSucceeded=countif(Result == "Succeeded"),
