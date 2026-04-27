@@ -177,24 +177,9 @@ def layout(default_queue=None):
                 },
             ),
             html.Div(id="stat-cards-container", style={"marginBottom": "8px"}),
+            # Task panels
             html.Div(
                 [
-                    dcc.Graph(
-                        id="active-workers-graph",
-                        style={
-                            "aspectRatio": "12 / 9",
-                            "margin": "5px",
-                            "minWidth": "400px",
-                        },
-                    ),
-                    dcc.Graph(
-                        id="active-environments-graph",
-                        style={
-                            "aspectRatio": "12 / 9",
-                            "margin": "5px",
-                            "minWidth": "400px",
-                        },
-                    ),
                     dcc.Graph(
                         id="queue-size-graph",
                         style={
@@ -228,6 +213,84 @@ def layout(default_queue=None):
                         },
                     ),
                     dcc.Graph(
+                        id="tasks-completed-trend-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
+                        id="preemption-events-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                ],
+                style={
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(auto-fit, minmax(400px, 1fr))",
+                    "gap": "10px",
+                },
+            ),
+            # Workforce section
+            html.H2(
+                "Workforce",
+                style={"marginTop": "24px", "marginBottom": "12px", "fontSize": "20px"},
+            ),
+            html.Div(
+                [
+                    dcc.Graph(
+                        id="active-workers-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
+                        id="active-environments-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
+                        id="worker-churn-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
+                        id="worker-lifetime-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
+                        id="preemptions-by-env-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
+                        id="env-efficiency-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                    ),
+                    dcc.Graph(
                         id="cpu-util-graph",
                         style={
                             "aspectRatio": "12 / 9",
@@ -243,27 +306,11 @@ def layout(default_queue=None):
                             "minWidth": "400px",
                         },
                     ),
-                    dcc.Graph(
-                        id="preemption-events-graph",
-                        style={
-                            "aspectRatio": "12 / 9",
-                            "margin": "5px",
-                            "minWidth": "400px",
-                        },
-                    ),
-                    dcc.Graph(
-                        id="tasks-completed-trend-graph",
-                        style={
-                            "aspectRatio": "12 / 9",
-                            "margin": "5px",
-                            "minWidth": "400px",
-                        },
-                    ),
                 ],
                 style={
                     "display": "grid",
                     "gridTemplateColumns": "repeat(auto-fit, minmax(400px, 1fr))",
-                    "gap": "10px",  # Adds spacing between grid items
+                    "gap": "10px",
                 },
             ),
             html.H2("Errors"),

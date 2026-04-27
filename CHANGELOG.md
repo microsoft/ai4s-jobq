@@ -21,6 +21,12 @@ Features:
 * **Daily moving average panel.**
   New trend line showing 24h rolling average of task completions and failures.
 
+* **Workforce monitoring section.**
+  New dedicated section with panels for worker churn (arrivals vs departures),
+  worker lifetime distribution, preemptions by environment (top 20), and
+  environment efficiency (tasks completed vs preemptions scatter). Active
+  workers and active environments panels moved into this section.
+
 * **Workspace auto-detection.**
   The dashboard now infers the AML workspace from the selected queue and
   displays it in the toolbar. All queries are filtered to the detected

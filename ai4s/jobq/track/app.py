@@ -10,8 +10,10 @@ from .components import (
     active_environments,
     active_workers,
     cpu_utilization,
+    env_efficiency,
     errors,
     preemption_events,
+    preemptions_by_env,
     queue_size,
     ram_utilization,
     stat_cards,
@@ -19,6 +21,8 @@ from .components import (
     tasks_completed,
     tasks_completed_trend,
     tasks_starting,
+    worker_churn,
+    worker_lifetime,
 )
 
 
@@ -50,6 +54,10 @@ def run_with_default_queue(queue_name=None, debug=False, port=8050):
     errors.register_callbacks(app)
     preemption_events.register_callbacks(app)
     stat_cards.register_callbacks(app)
+    worker_churn.register_callbacks(app)
+    worker_lifetime.register_callbacks(app)
+    preemptions_by_env.register_callbacks(app)
+    env_efficiency.register_callbacks(app)
 
     def open_browser():
         webbrowser.open_new_tab(f"http://127.0.0.1:{port}/")
