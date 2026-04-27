@@ -95,11 +95,10 @@ def register_callbacks(app):
             title={
                 "text": f"Avg Time to Preemption (top/bottom {n_each})",
                 "x": 0.5,
-                "y": 0.99,
                 "xanchor": "center",
-                "yanchor": "top",
+                "automargin": True,
             },
-            margin={"t": 70, "l": 200},
+            margin={"t": 60, "l": 200},
             showlegend=False,
             yaxis_title="",
             xaxis_title="Minutes",
