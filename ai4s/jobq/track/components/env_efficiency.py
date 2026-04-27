@@ -104,5 +104,6 @@ def register_callbacks(app):
             showlegend=False,
             yaxis_title="",
             xaxis_title="Tasks / Preemption",
+            hoverlabel={"bgcolor": "white", "font_color": "black"},
         )
         return fig
