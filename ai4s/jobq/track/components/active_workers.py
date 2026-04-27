@@ -425,29 +425,32 @@ def layout(default_queue=None):
                     window.dispatchEvent(event);
                 });
 
-                // Inject CSS for expanded graphs and expand buttons
+                // Inject CSS for expanded graphs, expand buttons, and hide modebar
                 var style = document.createElement('style');
                 style.textContent = `
+                .modebar-container {
+                    display: none !important;
+                }
                 .dash-graph {
                     position: relative;
                 }
                 .expand-btn {
                     position: absolute;
-                    top: 8px;
-                    right: 8px;
+                    top: 4px;
+                    right: 4px;
                     z-index: 100;
-                    background: rgba(255,255,255,0.85);
-                    border: 1px solid #ccc;
-                    border-radius: 4px;
+                    background: #f8f8f8;
+                    border: 1px solid #ddd;
+                    border-radius: 3px;
                     cursor: pointer;
-                    font-size: 16px;
+                    font-size: 13px;
                     line-height: 1;
-                    padding: 4px 7px;
-                    opacity: 0;
-                    transition: opacity 0.2s;
+                    padding: 3px 6px;
+                    color: #666;
                 }
-                .dash-graph:hover .expand-btn {
-                    opacity: 1;
+                .expand-btn:hover {
+                    background: #eee;
+                    color: #333;
                 }
                 .graph-expanded {
                     position: fixed !important;
@@ -461,9 +464,6 @@ def layout(default_queue=None):
                     padding: 10px !important;
                     aspect-ratio: unset !important;
                     grid-column: unset !important;
-                }
-                .graph-expanded .expand-btn {
-                    opacity: 1;
                 }
                 .graph-expanded .js-plotly-plot,
                 .graph-expanded .plot-container,
@@ -491,7 +491,6 @@ def layout(default_queue=None):
                         container.appendChild(btn);
                     });
                 }
-                // Run after initial render and on mutations
                 setTimeout(addExpandButtons, 1000);
                 new MutationObserver(addExpandButtons).observe(
                     document.body, {childList: true, subtree: true}
