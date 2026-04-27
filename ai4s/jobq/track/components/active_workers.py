@@ -284,13 +284,22 @@ def layout(default_queue=None):
                         },
                         config={"displayModeBar": False},
                     ),
+                ],
+                style={
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(auto-fit, minmax(400px, 1fr))",
+                    "gap": "10px",
+                },
+            ),
+            # Preemption panels in their own row (each spans 2 columns)
+            html.Div(
+                [
                     dcc.Graph(
                         id="preemptions-by-env-graph",
                         style={
                             "aspectRatio": "10 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
-                            "gridColumn": "span 2",
                         },
                         config={"displayModeBar": False},
                     ),
@@ -300,10 +309,19 @@ def layout(default_queue=None):
                             "aspectRatio": "10 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
-                            "gridColumn": "span 2",
                         },
                         config={"displayModeBar": False},
                     ),
+                ],
+                style={
+                    "display": "grid",
+                    "gridTemplateColumns": "1fr 1fr",
+                    "gap": "10px",
+                },
+            ),
+            # CPU/RAM utilization
+            html.Div(
+                [
                     dcc.Graph(
                         id="cpu-util-graph",
                         style={
