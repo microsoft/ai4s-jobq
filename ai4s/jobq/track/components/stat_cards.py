@@ -33,10 +33,11 @@ def register_callbacks(app):
         if workspace:
             ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
 
+        # Single query: task totals + worker-days (active time per worker summed)
         query = f"""
         let startTime = datetime({start.isoformat()});
         let endTime = datetime({end.isoformat()});
-        let Events = union
+        let TaskEvents = union
         (
           AppTraces
           | where TimeGenerated between (startTime .. endTime)
@@ -58,35 +59,68 @@ def register_callbacks(app):
           | extend Result = "Failed"
           | project TimeGenerated, Result
         );
-        Events
+        let Totals = TaskEvents
         | summarize
-            Succeeded=countif(Result == "Succeeded"),
-            Failed=countif(Result == "Failed")
-            by bin(TimeGenerated, 1d)
+            TotalSucceeded=countif(Result == "Succeeded"),
+            TotalFailed=countif(Result == "Failed");
+        let WorkerDays = AppTraces
+        | where TimeGenerated between (startTime .. endTime)
+        | where Properties.queue == "{queue}"
+        {ws_filter}
+        | where isnotempty(Properties.worker_id)
         | summarize
-            AvgSucceeded=avg(Succeeded),
-            AvgFailed=avg(Failed),
-            TotalSucceeded=sum(Succeeded),
-            TotalFailed=sum(Failed)
+            FirstSeen=min(TimeGenerated),
+            LastSeen=max(TimeGenerated)
+            by worker_id=tostring(Properties.worker_id)
+        | extend ActiveHours = max_of(datetime_diff('minute', LastSeen, FirstSeen), 15) / 60.0
+        | summarize TotalWorkerDays = sum(ActiveHours) / 24.0;
+        Totals | extend placeholder=1
+        | join kind=inner (WorkerDays | extend placeholder=1) on placeholder
+        | project TotalSucceeded, TotalFailed, TotalWorkerDays
         """
 
         rows = run_query(query)
         if rows:
             row = rows[0]
-            avg_succeeded = float(row[0] or 0)
-            avg_failed = float(row[1] or 0)
-            total_succeeded = int(row[2] or 0)
-            total_failed = int(row[3] or 0)
+            total_succeeded = int(row[0] or 0)
+            total_failed = int(row[1] or 0)
+            total_worker_days = float(row[2] or 0)
         else:
-            avg_succeeded = avg_failed = 0.0
             total_succeeded = total_failed = 0
+            total_worker_days = 0.0
 
         days = max(1, (end - start).total_seconds() / 86400)
+        avg_succeeded = total_succeeded / days
+        avg_failed = total_failed / days
 
-        return _render_stat_cards(avg_succeeded, avg_failed, total_succeeded, total_failed, days)
+        if total_worker_days > 0:
+            succeeded_per_wd = total_succeeded / total_worker_days
+            failed_per_wd = total_failed / total_worker_days
+        else:
+            succeeded_per_wd = failed_per_wd = 0.0
+
+        return _render_stat_cards(
+            avg_succeeded,
+            avg_failed,
+            total_succeeded,
+            total_failed,
+            days,
+            succeeded_per_wd,
+            failed_per_wd,
+            total_worker_days,
+        )
 
 
-def _render_stat_cards(avg_succeeded, avg_failed, total_succeeded, total_failed, days):
+def _render_stat_cards(
+    avg_succeeded,
+    avg_failed,
+    total_succeeded,
+    total_failed,
+    days,
+    succeeded_per_wd,
+    failed_per_wd,
+    total_worker_days,
+):
     """Render the stat cards as Bootstrap-styled cards."""
     card_style = {
         "textAlign": "center",
@@ -96,30 +130,52 @@ def _render_stat_cards(avg_succeeded, avg_failed, total_succeeded, total_failed,
         "flex": "1",
     }
 
-    def stat_card(value, label, color):
-        return html.Div(
-            [
-                html.Div(
-                    f"{value:.1f}" if isinstance(value, float) else str(value),
-                    style={
-                        "fontSize": "28px",
-                        "fontWeight": "bold",
-                        "color": color,
-                        "lineHeight": "1.2",
-                    },
-                ),
-                html.Div(
-                    label,
-                    style={"fontSize": "12px", "color": "#666", "marginTop": "4px"},
-                ),
-            ],
-            style={**card_style, "border": f"1px solid {color}20", "background": f"{color}08"},
-        )
+    def stat_card(value, label, color, tooltip=None):
+        content = [
+            html.Div(
+                f"{value:.1f}" if isinstance(value, float) else str(value),
+                style={
+                    "fontSize": "28px",
+                    "fontWeight": "bold",
+                    "color": color,
+                    "lineHeight": "1.2",
+                },
+            ),
+            html.Div(
+                label,
+                style={"fontSize": "12px", "color": "#666", "marginTop": "4px"},
+            ),
+        ]
+        style = {**card_style, "border": f"1px solid {color}20", "background": f"{color}08"}
+        if tooltip:
+            style["cursor"] = "help"
+            return html.Div(content, style=style, title=tooltip)
+        return html.Div(content, style=style)
+
+    worker_tooltip = (
+        "Tasks per worker-day = total tasks \u00f7 cumulative worker-days. "
+        "A worker-day is one worker running for 24h. "
+        f"Total worker-days in window: {total_worker_days:.1f}. "
+        "Workers with only a single event are counted as 15min active. "
+        "Normalizes for workers starting/stopping at different times."
+    )
 
     return html.Div(
         [
             stat_card(avg_succeeded, "Avg succeeded / day", "#28a745"),
             stat_card(avg_failed, "Avg failed / day", "#dc3545"),
+            stat_card(
+                succeeded_per_wd,
+                "Succeeded / worker-day",
+                "#17a2b8",
+                tooltip=worker_tooltip,
+            ),
+            stat_card(
+                failed_per_wd,
+                "Failed / worker-day",
+                "#fd7e14",
+                tooltip=worker_tooltip,
+            ),
             stat_card(total_succeeded, f"Total succeeded ({days:.0f}d)", "#28a745"),
             stat_card(total_failed, f"Total failed ({days:.0f}d)", "#dc3545"),
         ],
