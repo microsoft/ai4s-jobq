@@ -431,16 +431,17 @@ def register_callbacks(app):
         rows = run_query(query)
         if by_env:
             df = pd.DataFrame(rows, columns=["TimeGenerated", "environment", "ActiveWorkers"])
-            fig = px.line(
+            fig = px.area(
                 df,
                 x="TimeGenerated",
                 y="ActiveWorkers",
                 color="environment",
                 title="Active Workers",
+                groupnorm=None,
             )
         else:
             df = pd.DataFrame(rows, columns=["TimeGenerated", "ActiveWorkers"])
-            fig = px.line(df, x="TimeGenerated", y="ActiveWorkers", title="Active Workers")
+            fig = px.area(df, x="TimeGenerated", y="ActiveWorkers", title="Active Workers")
 
         fig.update_layout(
             title={"x": 0.5, "y": 0.95, "xanchor": "center", "yanchor": "top"},
