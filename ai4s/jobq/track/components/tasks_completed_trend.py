@@ -87,15 +87,15 @@ def register_callbacks(app):
             title={
                 "text": "Daily Moving Average of Tasks Completed",
                 "x": 0.5,
-                "y": 0.95,
+                "y": 0.98,
                 "xanchor": "center",
                 "yanchor": "top",
             },
-            margin={"t": 50},
+            margin={"t": 70},
             xaxis_title="Time",
             yaxis_title="Tasks / interval (smoothed)",
             showlegend=True,
-            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+            legend={"orientation": "h", "yanchor": "bottom", "y": 1.08, "xanchor": "right", "x": 1},
         )
         return fig
 
