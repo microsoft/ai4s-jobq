@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 from dash import Input, Output
 from dash.exceptions import PreventUpdate
 
@@ -54,57 +54,62 @@ def register_callbacks(app):
         | summarize Preemptions=count() by environment;
         Tasks
         | join kind=fullouter Preemptions on environment
-        | project
-            Environment=coalesce(environment, environment1),
-            Completed=coalesce(Completed, 0),
-            Preemptions=coalesce(Preemptions, 0)
-        | where Completed > 0 or Preemptions > 0
-        | sort by Completed desc
+        | extend
+            Env=coalesce(environment, environment1),
+            C=coalesce(Completed, 0),
+            P=coalesce(Preemptions, 0)
+        | project Env, C, P
+        | where P > 0
+        | extend Ratio=round(todouble(C) / todouble(P), 2)
+        | sort by Ratio desc
         """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["Environment", "Completed", "Preemptions"])
-        df["Completed"] = pd.to_numeric(df["Completed"], errors="coerce").fillna(0)
-        df["Preemptions"] = pd.to_numeric(df["Preemptions"], errors="coerce").fillna(0)
-
-        # Efficiency = completions per preemption (higher is better)
-        df["Efficiency"] = df["Completed"] / (df["Preemptions"] + 1)
+        if not rows:
+            df = pd.DataFrame(columns=["Environment", "Completed", "Preemptions", "Ratio"])
+        else:
+            df = pd.DataFrame(rows)
+            df = df.iloc[:, -4:]
+            df.columns = ["Environment", "Completed", "Preemptions", "Ratio"]
+        df["Ratio"] = pd.to_numeric(df["Ratio"], errors="coerce").fillna(0)
 
         n_each = 10
         if len(df) > n_each * 2:
-            top = df.nlargest(n_each, "Efficiency")
-            bottom = df.nsmallest(n_each, "Efficiency")
-            top["Group"] = "best"
-            bottom["Group"] = "worst"
-            df = pd.concat([top, bottom]).drop_duplicates(subset="Environment", keep="first")
+            best = df.head(n_each).copy()
+            worst = df.tail(n_each).copy()
+            best["Group"] = "best"
+            worst["Group"] = "worst"
+            df = pd.concat([best, worst]).drop_duplicates(subset="Environment", keep="first")
             title_suffix = f" (top/bottom {n_each})"
         else:
             df["Group"] = "all"
             title_suffix = ""
 
-        color_map = {"best": "#54a24b", "worst": "#e45756", "all": "#4c78a8"}
+        # Sort ascending so best ratio at top of horizontal bar
+        df = df.sort_values("Ratio", ascending=True)
 
-        fig = px.scatter(
-            df,
-            x="Completed",
-            y="Preemptions",
-            text="Environment",
-            color="Group",
-            color_discrete_map=color_map,
-            size_max=10,
+        color_map = {"best": "#54a24b", "worst": "#e45756", "all": "#4c78a8"}
+        colors = df["Group"].map(color_map)
+
+        fig = go.Figure(
+            go.Bar(
+                x=df["Ratio"],
+                y=df["Environment"],
+                orientation="h",
+                marker_color=colors.tolist(),
+            )
         )
-        fig.update_traces(textposition="top center", textfont_size=8)
         fig.update_layout(
             title={
-                "text": f"Environment Efficiency{title_suffix}",
+                "text": f"Tasks per Preemption{title_suffix}",
                 "x": 0.5,
                 "y": 0.95,
                 "xanchor": "center",
                 "yanchor": "top",
             },
-            margin={"t": 50},
+            margin={"t": 50, "l": 150},
             showlegend=False,
-            xaxis_title="Tasks Completed",
-            yaxis_title="Preemptions",
+            yaxis_title="",
+            xaxis_title="Tasks / Preemption",
         )
         return fig

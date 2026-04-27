@@ -36,37 +36,62 @@ def register_callbacks(app):
             ws_filter = f'| where Properties.azureml_workspace_name == "{workspace}"'
 
         n_each = 10
+        # Avg time from worker first-seen to preemption, per environment.
+        # Workers that were never preempted are excluded.
         query = f"""
         let startTime = datetime({start.isoformat()});
         let endTime = datetime({end.isoformat()});
-        let All = AppTraces
+        let WorkerStarts = AppTraces
+        | where TimeGenerated between (startTime .. endTime)
+        | where Properties.queue == "{queue}"
+        {ws_filter}
+        | where isnotempty(Properties.worker_id)
+        | summarize WorkerStart=min(TimeGenerated)
+            by worker_id=tostring(Properties.worker_id),
+               environment=tostring(Properties.environment);
+        let PreemptionTimes = AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
         {ws_filter}
         | where Properties.event == "preemption_detected"
-        | extend environment = tostring(Properties.environment)
-        | summarize Preemptions=count() by environment
-        | sort by Preemptions desc;
-        let Top = All | take {n_each};
-        let Bottom = All | sort by Preemptions asc | take {n_each};
-        Top | extend Group="worst"
-        | union (Bottom | extend Group="best")
-        | sort by Preemptions desc
+        | extend worker_id=tostring(Properties.worker_id),
+                 environment=tostring(Properties.environment)
+        | summarize FirstPreemption=min(TimeGenerated) by worker_id, environment;
+        WorkerStarts
+        | join kind=inner PreemptionTimes on worker_id, environment
+        | extend MinutesToPreemption=datetime_diff('second', FirstPreemption, WorkerStart) / 60.0
+        | where MinutesToPreemption >= 0
+        | summarize AvgMinutes=avg(MinutesToPreemption), Workers=count() by environment
+        | where Workers >= 3
+        | sort by AvgMinutes asc;
         """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["Environment", "Preemptions", "Group"])
-        df["Preemptions"] = pd.to_numeric(df["Preemptions"], errors="coerce").fillna(0)
-        # De-duplicate environments that appear in both top and bottom
-        df = df.drop_duplicates(subset="Environment", keep="first")
-        # Reverse for horizontal bar (top item at top)
-        df = df.iloc[::-1]
+        if not rows:
+            df = pd.DataFrame(columns=["Environment", "AvgMinutes", "Workers"])
+        else:
+            df = pd.DataFrame(rows, columns=["Environment", "AvgMinutes", "Workers"])
+        df["AvgMinutes"] = pd.to_numeric(df["AvgMinutes"], errors="coerce").fillna(0)
 
-        colors = df["Group"].map({"worst": "#e45756", "best": "#54a24b"})
+        # Show top N shortest (worst) and top N longest (best)
+        if len(df) > n_each * 2:
+            worst = df.head(n_each).copy()
+            best = df.tail(n_each).copy()
+            worst["Group"] = "shortest"
+            best["Group"] = "longest"
+            df = pd.concat([worst, best]).drop_duplicates(subset="Environment", keep="first")
+        else:
+            df["Group"] = "all"
+
+        # Sort ascending so longest at top of horizontal bar
+        df = df.sort_values("AvgMinutes", ascending=True)
+
+        color_map = {"shortest": "#e45756", "longest": "#54a24b", "all": "#4c78a8"}
+        colors = df["Group"].map(color_map)
 
         fig = go.Figure(
             go.Bar(
-                x=df["Preemptions"],
+                x=df["AvgMinutes"],
                 y=df["Environment"],
                 orientation="h",
                 marker_color=colors.tolist(),
@@ -74,7 +99,7 @@ def register_callbacks(app):
         )
         fig.update_layout(
             title={
-                "text": f"Preemptions by Environment (top/bottom {n_each})",
+                "text": f"Avg Time to Preemption (top/bottom {n_each})",
                 "x": 0.5,
                 "y": 0.95,
                 "xanchor": "center",
@@ -83,6 +108,6 @@ def register_callbacks(app):
             margin={"t": 50, "l": 150},
             showlegend=False,
             yaxis_title="",
-            xaxis_title="Preemptions",
+            xaxis_title="Minutes",
         )
         return fig

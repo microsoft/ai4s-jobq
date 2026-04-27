@@ -39,31 +39,36 @@ def register_callbacks(app):
         let dt = 15m;
         let startTime = datetime({start.isoformat()});
         let endTime = datetime({end.isoformat()});
-        AppTraces
+        let WorkerLifetimes = AppTraces
         | where TimeGenerated between (startTime .. endTime)
         | where Properties.queue == "{queue}"
         {ws_filter}
         | where isnotempty(Properties.worker_id)
         | summarize FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated)
             by worker_id=tostring(Properties.worker_id)
-        | extend ArrivalBin=bin(FirstSeen, dt), DepartureBin=bin(LastSeen, dt)
-        | project ArrivalBin, DepartureBin
-        | as WorkerLifetimes;
-        let Arrivals = WorkerLifetimes
-        | summarize Arrived=count() by TimeBin=ArrivalBin;
-        let Departures = WorkerLifetimes
-        | summarize Departed=count() by TimeBin=DepartureBin;
-        Arrivals
-        | join kind=fullouter Departures on TimeBin
-        | project
-            TimeBin=coalesce(TimeBin, TimeBin1),
-            Arrived=coalesce(Arrived, 0),
-            Departed=coalesce(Departed, 0)
-        | sort by TimeBin asc
+        | extend ArrivalBin=bin(FirstSeen, dt), DepartureBin=bin(LastSeen, dt);
+        WorkerLifetimes
+        | summarize Arrived=count() by TimeBin=ArrivalBin
+        | join kind=fullouter (
+            WorkerLifetimes
+            | summarize Departed=count() by TimeBin=DepartureBin
+        ) on TimeBin
+        | extend
+            T=coalesce(TimeBin, TimeBin1),
+            A=coalesce(Arrived, 0),
+            D=coalesce(Departed, 0)
+        | project T, A, D
+        | sort by T asc
         """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeBin", "Arrived", "Departed"])
+        if not rows:
+            df = pd.DataFrame(columns=["TimeBin", "Arrived", "Departed"])
+        else:
+            df = pd.DataFrame(rows)
+            # fullouter may return 3-5 columns; we only need the last 3 projected
+            df = df.iloc[:, -3:]
+            df.columns = ["TimeBin", "Arrived", "Departed"]
         df["Arrived"] = pd.to_numeric(df["Arrived"], errors="coerce").fillna(0)
         df["Departed"] = pd.to_numeric(df["Departed"], errors="coerce").fillna(0)
 
