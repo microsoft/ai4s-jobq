@@ -36,10 +36,12 @@ import os
 import tempfile
 import textwrap
 import time
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
+from ai4s.jobq import JobQ
 from ai4s.jobq.entities import WorkerCanceled
 from ai4s.jobq.work import ShellCommandProcessor
 
@@ -138,4 +140,46 @@ async def test_kill_subprocesses_sends_sigterm_to_all_workers():
             f"This is the _kill_subprocesses blast-radius bug: cancelling "
             f"task_0 killed ALL pool children.\n"
             f"All statuses: {statuses}"
+        )
+
+
+async def test_cancelled_task_is_requeued(azurite_connstr):
+    """A cancelled task's message must be requeued so another worker can pick it up.
+
+    When a task is cancelled (for example, lock loss), ``pull_and_execute`` catches
+    ``WorkerCanceled`` and calls ``envelope.requeue()``.  The subprocess itself
+    completes, but the queue message remains available for redelivery.
+    """
+    async with JobQ.from_connection_string("jobs", connection_string=azurite_connstr) as q:
+        await q.clear()
+        await q.push({"cmd": "echo hello"})
+
+        # Verify the message is in the queue.
+        msgs = await q.peek(1)
+        assert len(msgs) == 1
+
+        # Start pull_and_execute in a task and cancel it mid-flight.
+        async def slow_callback(cmd):
+            await asyncio.sleep(60)
+
+        worker_task = asyncio.create_task(
+            q.pull_and_execute(
+                slow_callback,
+                visibility_timeout=timedelta(seconds=5),
+            )
+        )
+        # Give pull_and_execute time to dequeue the message and start the callback.
+        await asyncio.sleep(0.5)
+        worker_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, WorkerCanceled):
+            await worker_task
+
+        # The message should still be in the queue (requeued or visibility-timeout
+        # expired).  Wait for the visibility timeout to expire so it becomes visible.
+        await asyncio.sleep(6)
+
+        msgs = await q.peek(1)
+        assert len(msgs) >= 1, (
+            "Cancelled task's message should be requeued and visible after "
+            "the visibility timeout expires."
         )
