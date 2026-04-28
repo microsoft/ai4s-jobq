@@ -7,17 +7,15 @@ import queue
 import shlex
 import shutil
 import signal
-import time
 import typing as ty
 from abc import ABC, abstractmethod
 from asyncio.subprocess import PIPE
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, ExitStack, suppress
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, ExitStack
 from functools import partial
 from multiprocessing import Manager
 from queue import Empty
 from tempfile import TemporaryDirectory
-from typing import ClassVar
 
 from rich.progress import TextColumn
 
@@ -25,7 +23,7 @@ from ai4s.jobq.entities import WorkerCanceled
 from ai4s.jobq.ext.background_dirsync import BackgroundDirSync
 
 try:
-    from typing import Self
+    from typing import Self  # type: ignore
 except ImportError:
     from typing_extensions import Self
 
@@ -40,7 +38,7 @@ T = ty.TypeVar("T")
 class ProcessPoolRegistry:
     """Registry for process pools."""
 
-    _pools: ClassVar[set["ProcessPool"]] = set()
+    _pools: set["ProcessPool"] = set()
 
     @classmethod
     def remove_pool(cls, pool: "ProcessPool") -> None:
@@ -57,7 +55,7 @@ class ProcessPoolRegistry:
             *(pool._wait_for_msg_queue_to_drain() for pool in cls._pools),
             return_exceptions=True,
         )
-        for pool, result in zip(cls._pools, results, strict=False):
+        for pool, result in zip(cls._pools, results):
             if isinstance(result, Exception):
                 LOG.error(
                     "Exception while draining message queue for pool %r: %r",
@@ -79,7 +77,7 @@ else:
 
 def _env_wrapper(
     func: ty.Callable[[], ResultType],
-    env: dict[str, str] | None = None,
+    env: ty.Optional[ty.Dict[str, str]] = None,
 ) -> ResultType:
     if env:
         for k, v in env.items():
@@ -108,7 +106,7 @@ async def run_cmd_and_log_outputs(
     cmd: str,
     log_msg_queue: "queue.Queue",
     job_id: str,
-    cwd: str | None,
+    cwd: ty.Optional[str],
     emulate_tty: bool = False,
 ) -> int:
     """
@@ -126,7 +124,7 @@ async def run_cmd_and_log_outputs(
         try:
             log_msg_queue.put((level, job_id, msg))
         except Exception:
-            print(f"Could not log {level} message: {msg}")  # noqa: T201
+            print(f"Could not log {level} message: {msg}")
 
     if executable is not None:
         if not emulate_tty:
@@ -155,23 +153,19 @@ async def run_cmd_and_log_outputs(
             args = ["-q", "-c", cmd, "/dev/null"]
 
         process = await asyncio.create_subprocess_exec(
-            executable, *args, stdout=PIPE, stderr=PIPE, cwd=cwd, start_new_session=True
+            executable, *args, stdout=PIPE, stderr=PIPE, cwd=cwd
         )
     else:
         if emulate_tty:
             quoted_cmd = shlex.quote(cmd)
             cmd = f"script -q -c {quoted_cmd} /dev/null"
 
-        process = await asyncio.create_subprocess_shell(
-            cmd, stdout=PIPE, stderr=PIPE, cwd=cwd, start_new_session=True
-        )
+        process = await asyncio.create_subprocess_shell(cmd, stdout=PIPE, stderr=PIPE, cwd=cwd)
 
     terminated = False
-    _terminated_at: float | None = None
-    _kill_timeout = int(os.environ.get("JOBQ_KILL_TIMEOUT", "600"))
 
     def handle_shutdown_signal(*args):
-        nonlocal terminated, _terminated_at
+        nonlocal terminated
 
         # log to stdout
         LOG.info(
@@ -187,14 +181,7 @@ async def run_cmd_and_log_outputs(
             process.pid,
         )
         terminated = True
-        _terminated_at = time.monotonic()
-        try:
-            process.send_signal(signal.SIGTERM)
-        except ProcessLookupError:
-            LOG.info(
-                "Could not terminate process %d, it may have already exited.",
-                process.pid,
-            )
+        process.send_signal(signal.SIGTERM)
 
     signal.signal(signal.SIGUSR1, handle_shutdown_signal)
 
@@ -204,89 +191,28 @@ async def run_cmd_and_log_outputs(
     assert stdout is not None
     assert stderr is not None
 
-    # We wait for *both* the process exit and the stream readers.  If the
-    # process exits but the streams stay open (because an orphaned background
-    # child inherited the pipes), we cancel the stream readers after a short
-    # grace period.
-    #
-    # NOTE: asyncio's ``process.wait()`` waits for the transport to close,
-    # which in turn waits for all pipe data to be consumed — so it would hang
-    # just like the stream readers.  We poll ``process.returncode`` instead,
-    # which is set by asyncio's child watcher independently of pipe state.
-    drain_timeout = 5  # seconds
-
-    read_task = asyncio.ensure_future(
-        asyncio.gather(
+    try:
+        await asyncio.gather(
             read_stream_and_log(stdout, log_msg_queue, job_id, logging.INFO),
             read_stream_and_log(stderr, log_msg_queue, job_id, logging.WARNING),
             return_exceptions=True,
         )
-    )
-    try:
-        # Poll for process exit without depending on pipe EOF.
-        while process.returncode is None:
-            if read_task.done():
-                # Streams closed first (normal case) — just wait for the
-                # child watcher to set returncode.
-                ret = await process.wait()
-                break
-            # Escalate to SIGKILL if the process didn't exit after SIGTERM.
-            if (
-                _terminated_at is not None
-                and _kill_timeout > 0
-                and time.monotonic() - _terminated_at >= _kill_timeout
-            ):
-                log(
-                    logging.WARNING,
-                    "Process %d did not exit %ds after SIGTERM. Sending SIGKILL to process group.",
-                    process.pid,
-                    _kill_timeout,
-                )
-                with suppress(ProcessLookupError):
-                    os.killpg(process.pid, signal.SIGKILL)
-                _terminated_at = None  # only escalate once
-            await asyncio.sleep(0.1)
-        else:
-            ret = process.returncode
-            # Process exited but streams may still be open (orphaned child
-            # inherited the pipes).  Drain briefly, then cancel.
-            if not read_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(read_task), timeout=drain_timeout)
-                except asyncio.TimeoutError:
-                    log(
-                        logging.WARNING,
-                        "Stdout/stderr of process %d still open %ds after exit "
-                        "(orphaned background process?). Killing process group.",
-                        process.pid,
-                        drain_timeout,
-                    )
-                    with suppress(ProcessLookupError, PermissionError):
-                        os.killpg(process.pid, signal.SIGKILL)
-                    read_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await read_task
     except Exception:
-        log(logging.DEBUG, "Error waiting for process %d", process.pid)
-        read_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await read_task
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            process.kill()
+        log(logging.DEBUG, "Error reading stdout/stderr of process %d", process.pid)
+        process.kill()
         raise
     finally:
         log(
             logging.DEBUG,
-            "Process %d exited (terminated: %r)",
+            "Waiting for process %d to exit (terminated: %r)",
             process.pid,
             terminated,
         )
+        ret = await process.wait()
         if terminated:
             log(logging.DEBUG, "Raising WorkerCanceled since process was terminated")
-            raise WorkerCanceled
-        return ret  # noqa: B012 — return in finally is intentional
+            raise WorkerCanceled()
+        return ret
 
 
 class DefaultSeed:
@@ -301,7 +227,7 @@ class StackManager(_AbstractAsyncContextManager["StackManager"]):
     def __init__(self) -> None:
         super().__init__()
         self.stack = AsyncExitStack()
-        self.context_managers: list[AbstractAsyncContextManager[ty.Any]] = []
+        self.context_managers: ty.List[AbstractAsyncContextManager[ty.Any]] = []
 
     def register_context_manager(self, *manager: _AbstractAsyncContextManager[ty.Any]) -> None:
         """Registers a context manager to be entered and exited with this one."""
@@ -318,7 +244,7 @@ class StackManager(_AbstractAsyncContextManager["StackManager"]):
 
     async def __aexit__(self, *args: ty.Any) -> None:
         await self.stack.__aexit__(*args)
-        return
+        return None
 
 
 class WorkSpecification(StackManager, ty.Generic[Task, Seed], ABC):
@@ -355,7 +281,9 @@ class WorkSpecification(StackManager, ty.Generic[Task, Seed], ABC):
         """
         return False
 
-    async def enqueue_task(self, task: Task, force: bool = False) -> dict[str, ty.Any] | str | None:
+    async def enqueue_task(
+        self, task: Task, force: bool = False
+    ) -> ty.Optional[ty.Union[ty.Dict[str, ty.Any], str]]:
         """
         Enqueue a task. By default, the task is enqueued as-is as long as already_done(task) is False or force is True.
         """
@@ -376,9 +304,6 @@ class Processor(StackManager, ABC):
     async def resume(self) -> None:
         pass
 
-    async def shutdown(self) -> None:
-        """Called during coordinated shutdown (e.g. preemption) before tasks are cancelled."""
-
 
 class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     """Use this mixin to provide a process pool for any CPU-intensive or blocking work."""
@@ -386,8 +311,8 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     def __init__(self, pool_size: int = 100) -> None:
         self.pool_size = pool_size
         self.mp_manager = Manager()
-        self.log_msg_queue: queue.Queue | None = None
-        self.__pool: ProcessPoolExecutor | None = None
+        self.log_msg_queue: ty.Optional["queue.Queue"] = None
+        self.__pool: ty.Optional[ProcessPoolExecutor] = None
         self._shutdown_lock = asyncio.Lock()
         self._in_shutdown = False
         super().__init__()
@@ -412,12 +337,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
                 LOG.exception("Error passing signal to pool processes")
 
         LOG.debug("Shutting down pool.")
-        # Run the synchronous shutdown in a thread so the asyncio event loop
-        # stays unblocked.  This lets lock-renewal tasks, heartbeats, and the
-        # PreemptionEventHandler continue to run while we wait for the pool
-        # processes to finish — preventing message-lock expiration that is
-        # especially critical for the ServiceBus REST backend (5-min lock).
-        await loop.run_in_executor(None, self._pool.shutdown, True)
+        self._pool.shutdown(wait=True)
         LOG.debug("Pool shutdown done.")
         self.__pool = await self._create_pool()
         await asyncio.sleep(1)
@@ -432,7 +352,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         return self.__pool
 
     @staticmethod
-    def _truish(value: str | None) -> bool:
+    def _truish(value: ty.Optional[str]) -> bool:
         if value is None:
             return False
         return value.lower() in ("true", "1", "yes", "y")
@@ -440,8 +360,8 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     async def submit(
         self,
         func: ty.Callable[[], ResultType],
-        bg_dirsync_to: str | None = None,
-        env: dict[str, str] | None = None,
+        bg_dirsync_to: ty.Optional[str] = None,
+        env: ty.Optional[ty.Dict[str, str]] = None,
     ) -> ResultType:
         """
         Run a function in a separate process. Make sure all parameters and
@@ -451,6 +371,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         loop = asyncio.get_running_loop()
 
         env = env or {}
+        ret = None
 
         with ExitStack() as stack:
             if bg_dirsync_to:
@@ -472,19 +393,27 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
             try:
                 ret = await loop.run_in_executor(self._pool, partial(_env_wrapper, func, env=env))
             except asyncio.CancelledError:
-                raise
+                async with self._shutdown_lock:
+                    if not self._in_shutdown:
+                        self._in_shutdown = True
+                        # ideally, we should only SIGTERM the process submitted above, but we don't know its PID:
+                        # this is an implementation detail of ProcessPoolExecutor.
+                        # instead, the first worker to receive a SIGTERM will
+                        # send a SIGTERM to *all* subprocesses.
+                        # For the other processes, we set _in_shutdown to True, so that they
+                        # raise WorkerCanceled() instead of returning a (potentially incorrect) result.
+                        await self._kill_subprocesses(loop)
             if self._in_shutdown:
-                raise WorkerCanceled
-        return ret
-
-    async def kill_all_subprocesses(self) -> None:
-        """Coordinated shutdown: signal all pool children and wait for the pool to drain."""
-        self._in_shutdown = True
-        loop = asyncio.get_running_loop()
-        await self._kill_subprocesses(loop)
+                raise WorkerCanceled()
+        return ty.cast(ResultType, ret)
 
     async def _create_pool(self) -> ProcessPoolExecutor:
-        return ProcessPoolExecutor(self.pool_size, initializer=_process_pool_signal_handler)
+        def init_process():
+            # ignore SIGINT in children, because shell sends it to the whole process group
+            # and we want the parent to handle it
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+        return ProcessPoolExecutor(self.pool_size, initializer=init_process)
 
     async def _wait_for_msg_queue_to_drain(self) -> None:
         assert self.log_msg_queue is not None, "Log message queue not initialized"
@@ -498,7 +427,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     async def __aenter__(self) -> Self:
         loop = asyncio.get_running_loop()
 
-        self.mp_manager.__enter__()
+        self.mp_manager.__enter__()  # type: ignore
         self.log_msg_queue = self.mp_manager.Queue()
 
         ProcessPoolRegistry.register_pool(self)
@@ -537,8 +466,7 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
 
     async def __aexit__(self, *args: ty.Any) -> None:
         LOG.debug("Started ProcessPool context manager exit.")
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._pool.shutdown, True)
+        self._pool.shutdown(wait=True)
         LOG.debug("Signaling log msg queue to stop.")
         if self.log_msg_queue is not None:
             # put a sentinel value to stop the log_from_queue task
@@ -552,11 +480,11 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
             LOG.debug("Log queue task finished.")
         ProcessPoolRegistry.remove_pool(self)
         self.log_msg_queue = None
-        self.mp_manager.__exit__(*args)
+        self.mp_manager.__exit__(*args)  # type: ignore
         LOG.debug("MP manager exited.")
         await super().__aexit__(*args)
         LOG.debug("Pool exited.")
-        return
+        return None
 
 
 class SequentialProcessor(Processor):
@@ -568,9 +496,6 @@ class SequentialProcessor(Processor):
 
     async def resume(self) -> None:
         await self.pool.resume()
-
-    async def shutdown(self) -> None:
-        await self.pool.kill_all_subprocesses()
 
     async def __call__(self, **kwargs):
         return await self.pool.submit(partial(self._callback, **kwargs))
@@ -597,7 +522,7 @@ class ShellCommandProcessor(Processor):
         cmd: str,
         apqueue: "queue.Queue",
         job_id: str,
-        cwd: str | None,
+        cwd: ty.Optional[str],
         emulate_tty: bool = False,
     ) -> int:
         """
@@ -612,16 +537,13 @@ class ShellCommandProcessor(Processor):
         LOG.info("Resuming ShellCommandProcessor.")
         await self.pool.resume()
 
-    async def shutdown(self) -> None:
-        await self.pool.kill_all_subprocesses()
-
     async def __call__(
         self,
         cmd: str,
         _job_id: str,
-        bg_dirsync_to: str | None = None,
-        env: dict[str, str] | None = None,
-        cwd: str | None = None,
+        bg_dirsync_to: ty.Optional[str] = None,
+        env: ty.Optional[ty.Dict[str, str]] = None,
+        cwd: ty.Optional[str] = None,
     ) -> int:
         assert self.pool.log_msg_queue is not None, "Log message queue not initialized."
         call = partial(
@@ -640,7 +562,8 @@ class ShellCommandProcessor(Processor):
         if ret_code != 0:
             self.stats.num_failed_jobq_tasks += 1
             raise RuntimeError(f"Command {cmd!r} failed with return code {ret_code}")
-        self.stats.num_succeeded_jobq_tasks += 1
+        else:
+            self.stats.num_succeeded_jobq_tasks += 1
         return ret_code
 
 
@@ -670,7 +593,7 @@ class ProgressStats(TextColumn):
         self.num_failed_jobq_tasks = 0
         self._fixed_text = ""
 
-    def dict(self) -> dict[str, ty.Any]:
+    def dict(self) -> ty.Dict[str, ty.Any]:
         return {
             "num_succeeded_tasks": self.num_succeeded_jobq_tasks,
             "num_failed_tasks": self.num_failed_jobq_tasks,
@@ -686,9 +609,3 @@ class ProgressStats(TextColumn):
     @text_format.setter
     def text_format(self, value: str) -> None:
         self._fixed_text = value
-
-
-def _process_pool_signal_handler():
-    # ignore SIGINT in children, because shell sends it to the whole process group
-    # and we want the parent to handle it
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
