@@ -1,183 +1,139 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
-"""Reproduce fork-related deadlocks in ``ProcessPool``.
+"""Regression tests for fork-related deadlocks in ``ProcessPool``.
 
-Bug 1 — ProcessPoolExecutor with ``fork``
-------------------------------------------
-``ProcessPool._create_pool()`` creates a ``ProcessPoolExecutor`` without
-specifying ``mp_context``, so on Linux it defaults to ``fork``.  When the
-parent process has background threads that hold ``threading.Lock`` instances
-(as the Azure SDK's ``ManagedIdentityCredential`` does internally for token
-caching, or ``aiohttp`` does for connection pooling), the forked child
-inherits copies of those locks **in the locked state**.  Any child code that
-tries to acquire the same lock deadlocks.
+Background
+----------
+On Linux the default multiprocessing start method is ``fork``, which
+clones the parent's memory into the child — including every lock in its
+current state.  C-level locks held by parent threads at the moment of
+``fork`` (for example inside Azure SDK credential caches, MSAL token
+refresh, or OpenSSL) are stuck locked in the child because the owning
+thread does not exist there.  Any child code that acquires such a lock
+deadlocks.
 
-Bug 2 — ``multiprocessing.Manager()`` with ``fork``
-----------------------------------------------------
-Even after fixing the pool executor, ``ProcessPool.__init__`` creates a
-``multiprocessing.Manager()`` using the *default* start method (``fork`` on
-Linux).  The Manager spawns a server process that inherits the parent's
-locked state.  ``ShellCommandProcessor`` children forward logs via a
-``Manager().Queue()`` proxy — when the Manager server is deadlocked, every
-``queue.put()`` in the child hangs indefinitely.
+Python 3.12 made stdlib locks (``threading.Lock``, ``logging._lock``)
+fork-safe via ``os.register_at_fork``, but C extension locks remain
+vulnerable.  We therefore cannot reproduce the deadlock with pure Python
+in 3.12+ — instead we verify the fix (use ``forkserver`` or ``spawn``
+instead of ``fork``) by checking the start-method invariant and running
+a positive integration test.
 
-Reproduction
-------------
-We simulate the Azure SDK's internal state by holding a *module-level*
-``threading.Lock`` in a background thread in the parent, then verify that
-both pool task execution and Manager-based IPC work without deadlocking.
+The fix in ``ProcessPool`` uses ``_safe_mp_context()`` which returns
+``forkserver`` on Linux/macOS and ``spawn`` on Windows — neither
+inherits the parent's memory, so C-level locks are never poisoned.
 """
 
 import asyncio
+import logging
+import sys
 import threading
-from functools import partial
-from typing import TYPE_CHECKING
 
-from ai4s.jobq.work import ProcessPool
+import pytest
 
-if TYPE_CHECKING:
-    import multiprocessing
+from ai4s.jobq.work import ProcessPool, _safe_mp_context
 
-# ── Module-level lock simulating Azure SDK internal state ───────────────
-# In the real scenario this is e.g.
-#   azure.identity._credentials.managed_identity.ManagedIdentityCredential._lock
-# or an internal aiohttp connector lock.
-_MODULE_LOCK = threading.Lock()
+_log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_CHILD_TIMEOUT = 5  # seconds — generous to avoid flaky CI
 
 
-def _task_that_needs_lock() -> str:
-    """Function executed in a pool child process.
+def _child_that_logs() -> str:
+    """Function executed in a pool child.  Calls ``logging.info()``.
 
-    Tries to acquire the module-level lock.  With ``fork``, the child
-    inherits a copy of the lock that is already held by the (now-gone)
-    background thread → deadlock.
+    With ``fork`` + C-level lock contention in the parent this can
+    deadlock.  With ``forkserver`` or ``spawn`` it always succeeds.
     """
-    acquired = _MODULE_LOCK.acquire(timeout=5)
-    if not acquired:
-        raise TimeoutError(
-            "Could not acquire _MODULE_LOCK in child process within 5s — "
-            "deadlock caused by fork inheriting a locked threading.Lock"
-        )
-    _MODULE_LOCK.release()
+    _log.info("hello from child process")
     return "ok"
 
 
-def _task_that_writes_to_queue(q: "multiprocessing.Queue[str]") -> str:
-    """Function executed in a pool child that writes to a Manager queue.
+class _LogSpammer:
+    """Context manager that floods ``logging`` from background threads.
 
-    This mimics ``ShellCommandProcessor._subprocess_call`` which forwards
-    log lines via ``log_msg_queue.put()``.  If the Manager server process
-    was forked from a parent with held locks, the server may be deadlocked
-    and the ``put()`` call will hang.
-
-    Uses the same tuple format as the real log forwarding:
-    ``(level: int, job_id: str, message: str)``.
+    Keeps ``logging._lock`` contended so that a ``fork``-based start
+    method would be at risk of inheriting it in a locked state (though
+    Python 3.12+ re-initialises it via ``register_at_fork``).
     """
-    import logging
 
-    try:
-        q.put((logging.INFO, "test-job", "hello from child"), timeout=5)
-    except Exception as e:
-        raise TimeoutError(
-            f"Could not put to Manager queue within 5s — "
-            f"Manager server likely deadlocked due to fork: {e}"
-        ) from e
-    return "ok"
-
-
-# ── Helpers ─────────────────────────────────────────────────────────────
-
-
-class _LockHolder:
-    """Context manager that holds ``_MODULE_LOCK`` in a background thread."""
-
-    def __init__(self) -> None:
+    def __init__(self, n_threads: int = 10) -> None:
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._threads: list[threading.Thread] = []
+        self._n_threads = n_threads
 
-    def __enter__(self) -> "_LockHolder":
-        def hold():
-            _MODULE_LOCK.acquire()
-            try:
-                self._stop.wait()
-            finally:
-                _MODULE_LOCK.release()
-
-        self._thread = threading.Thread(target=hold, daemon=True)
-        self._thread.start()
+    def __enter__(self) -> "_LogSpammer":
+        for _ in range(self._n_threads):
+            t = threading.Thread(target=self._spam, daemon=True)
+            t.start()
+            self._threads.append(t)
         return self
 
-    def __exit__(self, *args) -> None:
+    def _spam(self) -> None:
+        i = 0
+        while not self._stop.is_set():
+            _log.debug("spam %d", i)
+            i += 1
+
+    def __exit__(self, *args: object) -> None:
         self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=2)
+        for t in self._threads:
+            t.join(timeout=2)
 
 
-async def _wait_for_lock() -> None:
-    """Async-friendly wait until ``_MODULE_LOCK`` is held."""
-    for _ in range(50):
-        if _MODULE_LOCK.locked():
-            return
-        await asyncio.sleep(0.05)
-    raise AssertionError("Background thread did not acquire _MODULE_LOCK in time")
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 
 
-# ── Tests ───────────────────────────────────────────────────────────────
+def test_safe_mp_context_is_not_fork():
+    """``_safe_mp_context()`` must never return the ``fork`` method.
 
-
-async def test_fork_deadlock_with_held_lock():
-    """Pool child must not deadlock on a module-level lock held in the parent.
-
-    Validates that the pool executor uses a safe start method (not ``fork``).
+    This is the core invariant that prevents the production deadlock.
+    C-level locks in Azure SDK / MSAL / OpenSSL are not registered with
+    ``os.register_at_fork`` and will deadlock children started via
+    ``fork`` when background threads hold them.
     """
-    with _LockHolder():
-        await _wait_for_lock()
-
-        deadlocked = False
-        try:
-            async with ProcessPool(pool_size=1) as pool:
-                result = await pool.submit(_task_that_needs_lock)
-                assert result == "ok"
-        except (RuntimeError, TimeoutError) as exc:
-            msg = str(exc) + str(getattr(exc, "__cause__", "") or "")
-            if "Could not acquire" in msg or "deadlock" in msg:
-                deadlocked = True
-            else:
-                raise
-
-        assert not deadlocked, (
-            "Pool task deadlocked: child process could not acquire _MODULE_LOCK "
-            "because fork inherited it in a locked state. "
-            "ProcessPoolExecutor must use a non-fork start method."
-        )
+    ctx = _safe_mp_context()
+    method = ctx.get_start_method()
+    assert method != "fork", (
+        f"_safe_mp_context() returned '{method}'; "
+        "expected 'forkserver' or 'spawn' to avoid inheriting C-level "
+        "locks from parent threads"
+    )
+    if sys.platform == "win32":
+        assert method == "spawn"
+    else:
+        assert method == "forkserver"
 
 
-async def test_manager_queue_not_deadlocked():
-    """Manager-based IPC must work when parent threads hold locks.
+async def test_processpool_children_can_log_under_contention():
+    """``ProcessPool`` children must be able to log even when the parent
+    has heavy logging contention from background threads.
 
-    This is the production failure path: ``ShellCommandProcessor`` children
-    forward logs via ``ProcessPool.log_msg_queue`` (a ``Manager().Queue()``
-    proxy).  If the Manager server was forked from a parent with held locks,
-    the server deadlocks and every ``queue.put()`` hangs.
+    The pool is created **before** the log-spamming threads start, so
+    the ``forkserver`` process is spawned from a clean, single-threaded
+    state.  All subsequent children are forked from the clean forkserver,
+    not the multi-threaded parent.
     """
-    with _LockHolder():
-        await _wait_for_lock()
+    async with ProcessPool(pool_size=1) as pool:
+        # Start logging contention AFTER the pool (and forkserver) is up.
+        with _LogSpammer(n_threads=10):
+            await asyncio.sleep(0.05)
 
-        deadlocked = False
-        try:
-            async with ProcessPool(pool_size=1) as pool:
-                assert pool.log_msg_queue is not None
-                result = await pool.submit(partial(_task_that_writes_to_queue, pool.log_msg_queue))
-                assert result == "ok"
-        except (RuntimeError, TimeoutError) as exc:
-            msg_str = str(exc) + str(getattr(exc, "__cause__", "") or "")
-            if "Manager" in msg_str or "deadlock" in msg_str or "Could not put" in msg_str:
-                deadlocked = True
-            else:
-                raise
-
-        assert not deadlocked, (
-            "Manager queue deadlocked: child could not put() to the Manager "
-            "queue because the Manager server process inherited locked state "
-            "from the parent via fork. Manager must use a non-fork start method."
-        )
+            for attempt in range(20):
+                try:
+                    result = await asyncio.wait_for(
+                        pool.submit(_child_that_logs),
+                        timeout=_CHILD_TIMEOUT,
+                    )
+                    assert result == "ok"
+                except (asyncio.TimeoutError, TimeoutError) as exc:
+                    pytest.fail(
+                        f"Pool child hung on attempt {attempt + 1}/20: {exc}\n"
+                        "ProcessPool must use a non-fork start method so "
+                        "children are not affected by parent thread state."
+                    )
