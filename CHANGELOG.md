@@ -50,14 +50,16 @@ Bug fixes:
 * Fixed worker churn panel crash when the KQL response had fewer columns than
   expected.
 * **ProcessPool no longer deadlocks when the parent holds threading locks.**
-  ``ProcessPool._create_pool()`` now uses the ``forkserver`` multiprocessing
-  start method instead of the default ``fork``.  With ``fork``, child
-  processes inherit copies of the parent's ``threading.Lock`` instances in
-  their current (locked) state—for example, locks held internally by
+  Both ``ProcessPool._create_pool()`` and the ``multiprocessing.Manager``
+  used for log forwarding now use the ``forkserver`` start method instead of
+  the default ``fork``. With ``fork``, child and server processes inherit
+  copies of the parent's ``threading.Lock`` instances in their current
+  (locked) state—for example, locks held internally by
   ``ManagedIdentityCredential`` for token caching or by ``aiohttp`` for
   connection pooling. Because the owning thread does not exist in the child,
   any code path that tries to acquire such a lock deadlocks. ``forkserver``
-  avoids this by forking from a clean, single-threaded server process.
+  avoids this by forking from a clean, single-threaded server process. On
+  Windows, ``spawn`` is used instead (``forkserver`` is not available).
 
 
 3.9.2 (2026-04-24)
