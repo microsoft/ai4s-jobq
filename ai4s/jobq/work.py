@@ -14,7 +14,7 @@ from asyncio.subprocess import PIPE
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, ExitStack, suppress
 from functools import partial
-from multiprocessing import Manager
+from multiprocessing import Manager, get_context
 from queue import Empty
 from tempfile import TemporaryDirectory
 from typing import ClassVar
@@ -485,7 +485,14 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         return ty.cast("ResultType", ret)
 
     async def _create_pool(self) -> ProcessPoolExecutor:
-        return ProcessPoolExecutor(self.pool_size, initializer=_process_pool_signal_handler)
+        # Use forkserver to avoid inheriting locked threading.Lock instances
+        # from the parent process (e.g. Azure SDK credential/token caches).
+        # Plain "fork" copies locks in their current state, causing deadlocks.
+        return ProcessPoolExecutor(
+            self.pool_size,
+            mp_context=get_context("forkserver"),
+            initializer=_process_pool_signal_handler,
+        )
 
     async def _wait_for_msg_queue_to_drain(self) -> None:
         assert self.log_msg_queue is not None, "Log message queue not initialized"
