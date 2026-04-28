@@ -157,17 +157,6 @@ class JobQ:
     async def get_approximate_size(self) -> int:
         return await self._client.__len__()
 
-    async def sas_token(self, ttl: timedelta | None) -> str:
-        """Generates a Shared Access Token (SAS) to grant access to a worker.
-
-        Args:
-            ttl (timedelta): The token expires after this amount of time. Default: 14 days.
-        """
-        if ttl is None:
-            ttl = timedelta(days=14)
-
-        return self._client.generate_sas(ttl)
-
     @classmethod
     @asynccontextmanager
     async def from_connection_string(
@@ -182,11 +171,7 @@ class JobQ:
 
         fields = connection_string.split(";")
         field_dct = {field.split("=", 1)[0]: field.split("=", 1)[1] for field in fields if field}
-        credential = (
-            field_dct.get("SharedAccessSignature")
-            or field_dct.get("SharedAccessKey")
-            or field_dct.get("AccountKey")
-        )
+        credential = field_dct.get("AccountKey")
 
         backend: JobQBackend
         if "QueueEndpoint" in connection_string:

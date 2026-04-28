@@ -895,9 +895,6 @@ class ServiceBusRestBackend(JobQBackend):
     def name(self) -> str:
         return f"{self.fqns}/{self.queue_name}"
 
-    def generate_sas(self, ttl: timedelta) -> str:
-        raise NotImplementedError("REST ServiceBus does not yet support SAS tokens.")
-
     async def peek(self, n: int = 1, as_json: bool = False) -> list[ty.Any]:
         assert self._rest_client is not None
         messages = await self._rest_client.peek_messages(n)

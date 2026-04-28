@@ -5,16 +5,12 @@ import logging
 import typing as ty
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import replace as replace_in_dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from types import TracebackType
 
 import azure.core.exceptions
 from azure.core.credentials_async import AsyncTokenCredential
-from azure.storage.queue import (
-    QueueMessage,
-    QueueSasPermissions,
-    generate_queue_sas,
-)
+from azure.storage.queue import QueueMessage
 from azure.storage.queue.aio import QueueClient
 
 from ai4s.jobq.entities import EmptyQueue, Response, Task
@@ -330,24 +326,6 @@ class StorageQueueBackend(JobQBackend):
         with suppress(asyncio.CancelledError):
             await task
         LOG.debug("Done with heartbeat of %s", message.id)
-
-    def generate_sas(self, ttl: timedelta) -> str:
-        assert self.credential is not None, "Credential is required to generate SAS token."
-        assert isinstance(self.credential, str), (
-            "Credential needs to be of type str to generate SAS token."
-        )
-        assert self.queue_client is not None
-        assert self.queue_client.account_name is not None, (
-            "Account name is required to generate SAS token."
-        )
-        return generate_queue_sas(
-            account_name=self.queue_client.account_name,
-            account_key=self.credential,
-            queue_name=self.queue_client.queue_name,
-            permission=QueueSasPermissions(read=True, process=True, update=True),
-            start=datetime.now(timezone.utc),
-            expiry=datetime.now(timezone.utc) + ttl,
-        )
 
     async def peek(self, n: int = 1, as_json=False) -> list[QueueMessage]:
         assert self.queue_client is not None

@@ -195,9 +195,7 @@ class QueueConfig:
     duplicate_detection_window: timedelta | None = None
 
     @asynccontextmanager
-    async def get(
-        self, exist_ok: bool = True, require_account_key: bool = False
-    ) -> AsyncGenerator["JobQ", None]:
+    async def get(self, exist_ok: bool = True) -> AsyncGenerator["JobQ", None]:
         # instantiate processor
         async with AsyncExitStack() as stack:
             # this is ensured since they come from a click.argument
@@ -215,7 +213,7 @@ class QueueConfig:
             else:
                 if isinstance(self.backend_spec, StorageQueueSpec):
                     credential: str | AsyncTokenCredential | None = self.credential
-                    if not credential and not require_account_key:
+                    if not credential:
                         try:
                             credential = await stack.enter_async_context(get_token_credential())
                         except Exception as e:
@@ -415,21 +413,6 @@ async def peek(ctx: click.Context, n: int, as_json: bool) -> None:
         raise SystemExit(1) from e
 
 
-@main.command("sas")
-@click.option(
-    "--expiry",
-    "-e",
-    type=DurationParam(),
-    default="24h",
-    help="Time until SAS token expires.",
-)
-@click.pass_context
-async def sas(ctx: click.Context, expiry: timedelta) -> None:
-    """Get a SAS token for the queue."""
-    async with ctx.obj.get(exist_ok=True, require_account_key=True) as queue:
-        print(await queue.sas_token(ttl=expiry))
-
-
 @main.command("amlt")
 @click.option(
     "--time-limit",
@@ -625,9 +608,7 @@ async def workers(
     )
 
     async with AsyncExitStack() as stack:
-        queue = await stack.enter_async_context(
-            ctx.obj.get(exist_ok=True, require_account_key=False)
-        )
+        queue = await stack.enter_async_context(ctx.obj.get(exist_ok=True))
 
         kwargs: dict[str, Any] = {}
         if emulate_tty:
