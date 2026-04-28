@@ -1,6 +1,19 @@
 CHANGELOG
 =========
 
+3.11.0 (2026-04-29)
+-------------------
+
+Breaking changes:
+
+* **Removed legacy SAS-based queue authentication.**
+  The ``sas`` CLI command, ``JobQ.sas_token()`` method, and
+  ``generate_sas()`` backend protocol method have been removed. All
+  production deployments use ``DefaultAzureCredential`` / managed identity.
+  Connection-string authentication (``AccountKey``) for local development
+  with Azurite is unchanged. (Closes #14.)
+
+
 3.10.0 (2026-04-28)
 -------------------
 
