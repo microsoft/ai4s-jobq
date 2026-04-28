@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 import asyncio
 import logging
+import multiprocessing
 import os
 import queue
 import shlex
@@ -15,7 +16,7 @@ from asyncio.subprocess import PIPE
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, ExitStack, suppress
 from functools import partial
-from multiprocessing import Manager, get_context
+from multiprocessing import get_context
 from queue import Empty
 from tempfile import TemporaryDirectory
 from typing import ClassVar
@@ -381,12 +382,28 @@ class Processor(StackManager, ABC):
         """Called during coordinated shutdown (e.g. preemption) before tasks are cancelled."""
 
 
+def _safe_mp_context() -> multiprocessing.context.BaseContext:
+    """Return a multiprocessing context that avoids ``fork``.
+
+    ``fork`` copies the parent's memory—including any ``threading.Lock``
+    instances held by background threads (Azure SDK credential caches,
+    aiohttp connection pools, etc.)—into the child in their current
+    (locked) state.  The owning thread does not exist in the child, so
+    any code that tries to acquire such a lock deadlocks.
+
+    ``forkserver`` (Linux/macOS) forks from a clean, single-threaded
+    server process.  ``spawn`` (Windows, fallback) starts a fresh
+    interpreter.
+    """
+    return get_context("forkserver" if sys.platform != "win32" else "spawn")
+
+
 class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     """Use this mixin to provide a process pool for any CPU-intensive or blocking work."""
 
     def __init__(self, pool_size: int = 100) -> None:
         self.pool_size = pool_size
-        self.mp_manager = Manager()
+        self.mp_manager = _safe_mp_context().Manager()
         self.log_msg_queue: queue.Queue | None = None
         self.__pool: ProcessPoolExecutor | None = None
         self._shutdown_lock = asyncio.Lock()
@@ -485,15 +502,9 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         await self._kill_subprocesses(loop)
 
     async def _create_pool(self) -> ProcessPoolExecutor:
-        # Use forkserver to avoid inheriting locked threading.Lock instances
-        # from the parent process (e.g. Azure SDK credential/token caches).
-        # Plain "fork" copies locks in their current state, causing deadlocks.
-        # On Windows the default is already "spawn" (safe), and "forkserver"
-        # is not available.
-        ctx = get_context("forkserver" if sys.platform != "win32" else "spawn")
         return ProcessPoolExecutor(
             self.pool_size,
-            mp_context=ctx,
+            mp_context=_safe_mp_context(),
             initializer=_process_pool_signal_handler,
         )
 
