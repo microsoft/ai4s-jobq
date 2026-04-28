@@ -24,8 +24,9 @@ def register_callbacks(app):
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
+        Input("workspace-store", "data"),
     )
-    def update_graph(n, start_date, start_time, queue):
+    def update_graph(n, start_date, start_time, queue, workspace):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -65,10 +66,9 @@ def register_callbacks(app):
 
         df["TimeGenerated"] = pd.to_datetime(df["TimeGenerated"]).dt.strftime("%Y-%m-%d %H:%M")
         df["Duration"] = df["Duration"].astype(float)
-        df["Exception"].replace("", np.nan, inplace=True)
-        df["Exception"] = df["Exception"].fillna(df["ExceptionType"])
+        df["Exception"] = df["Exception"].replace("", np.nan).fillna(df["ExceptionType"])
         df["TaskId"] = df.apply(lambda row: f"[{row['TaskId']}]({row['URL']})", axis=1)
-        df.drop(columns=["ExceptionType", "URL"], inplace=True)
+        df = df.drop(columns=["ExceptionType", "URL"])
 
         columns = [
             {"name": "Time", "id": "TimeGenerated", "type": "datetime"},

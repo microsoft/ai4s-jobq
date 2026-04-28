@@ -627,6 +627,7 @@ async def launch_workers(
                             )
                             # Cancel the worker if shutdown was requested (most likely preemption)
                             LOG.info("Worker %d shutdown requested.", idx)
+                            await processor.shutdown()
                             for task in pending:
                                 task.cancel()
                                 with suppress(asyncio.CancelledError):

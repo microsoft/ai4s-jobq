@@ -32,6 +32,7 @@ UUID[s]?
 [Ee]nqueuing
 [Ee]nv
 [Ee]nvvar
+[Ff]ullscreen
 [Gg]rafana
 [Hh]ttp
 [Jj]son
@@ -49,6 +50,7 @@ UUID[s]?
 [Oo]rchestration
 [Pp]eek
 [Pp]eeking
+[Pp]lotly
 [Pp]re-emption
 [Pp]reemptible
 [Pp]reemption
@@ -57,6 +59,7 @@ UUID[s]?
 [Pp]yproject
 [Rr]equeue
 [Rr]equeuing
+[Rr]untimes?
 [Rr]etryable
 [Ss]calability
 [Ss]erializ(e|ation)

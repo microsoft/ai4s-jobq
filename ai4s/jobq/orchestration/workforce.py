@@ -682,17 +682,17 @@ class Workforce:
 
         When ``progress`` is True (default) a Rich progress bar is shown,
         matching :meth:`parallel_hire`'s output.
+
+        Each worker is built from a shallow copy of the prototype (see
+        :meth:`_build_worker`) so the submission does not mutate
+        ``self._job``. ``MLClient.jobs.create_or_update`` resolves
+        ``Command.compute`` and other short references in place, writing
+        canonical ARM ids back onto the submitted object; sharing the
+        prototype directly used to poison subsequent reads of
+        ``self._job.compute`` (e.g. :meth:`get_compute_infos`).
         """
         for i in self._progress_iter(range(1, n + 1), desc="Hiring", total=n, enabled=progress):
-            # not possible to deepcopy an azureml job, because class
-            # azure.ai.ml.entities._job.pipeline._io.attr_dict.InputsAttrDict can not be copied
-            job = self._job
-            job.environment_variables = job.environment_variables or {}
-            if acs := os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING") is not None:
-                job.environment_variables.setdefault("APPLICATIONINSIGHTS_CONNECTION_STRING", acs)
-            job.experiment_name = self._experiment_name
-            random_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
-            job.name = f"{self._experiment_name}-{random_id}"
+            job = self._build_worker()
             LOG.debug(f"Creating worker {job.name}")
             self._submit_job(job)
             if i % batch_size == 0:
@@ -1131,7 +1131,17 @@ class Workforce:
     def get_compute_infos(self) -> AmlComputeInfo:
         """for the used azureml compute cluster, get the available information, e.g. the number of unprovisioned nodes.
         The endpoint, including a sample response is documented here: https://learn.microsoft.com/en-us/rest/api/azureml/compute/get?view=rest-azureml-2024-10-01&tabs=HTTP#get-a-aml-compute"""
-        compute_name = self._job.compute
+        # ``Command.compute`` can hold either a bare compute name
+        # (``"mat-f16sv2-eastus"``) or a full ARM resource id
+        # (``"/subscriptions/.../computes/mat-f16sv2-eastus"``). Both are
+        # legal SDK inputs, and ``MLClient.jobs.create_or_update`` resolves
+        # a bare name to the full id as a side effect of submission, so
+        # the attribute flips form after the first hire. The URL template
+        # below hard-requires the bare name — normalize here so we accept
+        # either form regardless of how the caller configured ``compute``
+        # or how many hires have landed on the prototype.
+        compute_ref = self._job.compute
+        compute_name = compute_ref.rsplit("/", 1)[-1] if "/" in compute_ref else compute_ref
         subscription_id = self._aml_client.subscription_id
         resource_group = self._aml_client.resource_group_name
         workspace = self._aml_client.workspace_name
@@ -1151,7 +1161,8 @@ class Workforce:
 
         if response.status_code != 200:
             raise RuntimeError(
-                f"Failed to fetch cluster information {compute_name}: {response.text}"
+                f"Failed to fetch cluster information {compute_name}: "
+                f"HTTP {response.status_code} {response.reason} {response.text!r}"
             )
         aml_info = AmlComputeInfo(**response.json())
         return aml_info

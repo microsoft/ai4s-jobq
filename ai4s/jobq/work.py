@@ -376,6 +376,9 @@ class Processor(StackManager, ABC):
     async def resume(self) -> None:
         pass
 
+    async def shutdown(self) -> None:
+        """Called during coordinated shutdown (e.g. preemption) before tasks are cancelled."""
+
 
 class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
     """Use this mixin to provide a process pool for any CPU-intensive or blocking work."""
@@ -448,7 +451,6 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         loop = asyncio.get_running_loop()
 
         env = env or {}
-        ret = None
 
         with ExitStack() as stack:
             if bg_dirsync_to:
@@ -470,19 +472,16 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
             try:
                 ret = await loop.run_in_executor(self._pool, partial(_env_wrapper, func, env=env))
             except asyncio.CancelledError:
-                async with self._shutdown_lock:
-                    if not self._in_shutdown:
-                        self._in_shutdown = True
-                        # ideally, we should only SIGTERM the process submitted above, but we don't know its PID:
-                        # this is an implementation detail of ProcessPoolExecutor.
-                        # instead, the first worker to receive a SIGTERM will
-                        # send a SIGTERM to *all* subprocesses.
-                        # For the other processes, we set _in_shutdown to True, so that they
-                        # raise WorkerCanceled() instead of returning a (potentially incorrect) result.
-                        await self._kill_subprocesses(loop)
+                raise
             if self._in_shutdown:
                 raise WorkerCanceled
-        return ty.cast("ResultType", ret)
+        return ret
+
+    async def kill_all_subprocesses(self) -> None:
+        """Coordinated shutdown: signal all pool children and wait for the pool to drain."""
+        self._in_shutdown = True
+        loop = asyncio.get_running_loop()
+        await self._kill_subprocesses(loop)
 
     async def _create_pool(self) -> ProcessPoolExecutor:
         # Use forkserver to avoid inheriting locked threading.Lock instances
@@ -577,6 +576,9 @@ class SequentialProcessor(Processor):
     async def resume(self) -> None:
         await self.pool.resume()
 
+    async def shutdown(self) -> None:
+        await self.pool.kill_all_subprocesses()
+
     async def __call__(self, **kwargs):
         return await self.pool.submit(partial(self._callback, **kwargs))
 
@@ -616,6 +618,9 @@ class ShellCommandProcessor(Processor):
     async def resume(self) -> None:
         LOG.info("Resuming ShellCommandProcessor.")
         await self.pool.resume()
+
+    async def shutdown(self) -> None:
+        await self.pool.kill_all_subprocesses()
 
     async def __call__(
         self,

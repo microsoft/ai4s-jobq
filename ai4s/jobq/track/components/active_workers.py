@@ -7,12 +7,14 @@ from datetime import datetime, timedelta
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
-from dash import Input, Output, dash_table, dcc, html
+from dash import Input, Output, State, dash_table, dcc, html
 from dash.exceptions import PreventUpdate
 
 from ..utils.log_analytics import get_distinct_values, run_query
 
 LOG = logging.getLogger(__name__)
+
+_label_style = {"fontSize": "11px", "color": "#888", "marginBottom": "2px", "display": "block"}
 
 
 def layout(default_queue=None):
@@ -33,30 +35,216 @@ def layout(default_queue=None):
     return html.Div(
         [
             dcc.Location(id="url", refresh=False),
-            html.H2(id="current-queue"),
+            html.Span(id="current-queue", style={"display": "none"}),
+            dcc.Store(id="workspace-store", data=""),
             html.Div(
                 [
-                    dcc.DatePickerSingle(
-                        id="date-picker-single",
-                        date=default_start.date().strftime("%Y-%M-%D"),
-                        display_format="YYYY-MM-DD",
+                    # Row 1: Queue selector + workspace
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Label("Queue", style=_label_style),
+                                    dcc.Dropdown(
+                                        id="queue-dropdown",
+                                        options=queue_options or [],  # type: ignore[arg-type]
+                                        value=default_value,
+                                        placeholder="Select a queue",
+                                    ),
+                                ],
+                                style={"flex": "1", "minWidth": "250px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("Workspace", style=_label_style),
+                                    html.Div(
+                                        id="workspace-display",
+                                        children="detecting…",
+                                        style={
+                                            "fontSize": "13px",
+                                            "color": "#555",
+                                            "padding": "6px 0",
+                                        },
+                                    ),
+                                ],
+                                style={"marginLeft": "24px", "minWidth": "120px"},
+                            ),
+                        ],
+                        style={
+                            "display": "flex",
+                            "alignItems": "flex-end",
+                            "marginBottom": "10px",
+                        },
                     ),
-                    dcc.Input(
-                        id="start-time",
-                        type="text",
-                        value=default_start.strftime("%H:%M"),
-                        placeholder="HH:MM",
-                        style={"marginLeft": "10px"},
-                    ),
-                    dcc.Dropdown(
-                        id="queue-dropdown",
-                        options=queue_options or [],  # type: ignore[arg-type]
-                        value=default_value,
-                        placeholder="Select a queue",
-                        style={"width": "400px"},
+                    # Row 2: Time range + refresh
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Label("Time range", style=_label_style),
+                                    dbc.RadioItems(
+                                        id="time-range-preset",
+                                        options=[
+                                            {"label": "6h", "value": "6h"},
+                                            {"label": "12h", "value": "12h"},
+                                            {"label": "24h", "value": "24h"},
+                                            {"label": "3d", "value": "3d"},
+                                            {"label": "7d", "value": "7d"},
+                                        ],
+                                        value="24h",
+                                        inline=True,
+                                        className="btn-group",
+                                        inputClassName="btn-check",
+                                        labelClassName="btn btn-outline-secondary btn-sm",
+                                        labelCheckedClassName="active",
+                                    ),
+                                ],
+                                style={"marginRight": "24px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("From", style=_label_style),
+                                    html.Div(
+                                        [
+                                            dcc.DatePickerSingle(
+                                                id="date-picker-single",
+                                                date=default_start.date().strftime("%Y-%m-%d"),
+                                                display_format="YYYY-MM-DD",
+                                            ),
+                                            dcc.Input(
+                                                id="start-time",
+                                                type="text",
+                                                value=default_start.strftime("%H:%M"),
+                                                placeholder="HH:MM",
+                                                className="form-control form-control-sm",
+                                                style={"width": "70px", "marginLeft": "6px"},
+                                            ),
+                                        ],
+                                        style={"display": "flex", "alignItems": "center"},
+                                    ),
+                                ],
+                                style={"marginRight": "24px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("Refresh", style=_label_style),
+                                    dcc.Dropdown(
+                                        id="refresh-interval-dropdown",
+                                        options=[  # type: ignore[arg-type]
+                                            {"label": "Off", "value": 0},
+                                            {"label": "30s", "value": 30000},
+                                            {"label": "1m", "value": 60000},
+                                            {"label": "5m", "value": 300000},
+                                        ],
+                                        value=60000,
+                                        clearable=False,
+                                        style={"width": "80px"},
+                                    ),
+                                ],
+                                style={"marginRight": "24px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Label("Group by", style=_label_style),
+                                    dbc.RadioItems(
+                                        id="group-by-toggle",
+                                        options=[
+                                            {"label": "Overall", "value": "overall"},
+                                            {"label": "Environment", "value": "environment"},
+                                        ],
+                                        value="overall",
+                                        inline=True,
+                                        className="btn-group",
+                                        inputClassName="btn-check",
+                                        labelClassName="btn btn-outline-secondary btn-sm",
+                                        labelCheckedClassName="active",
+                                    ),
+                                ],
+                            ),
+                        ],
+                        style={
+                            "display": "flex",
+                            "alignItems": "flex-end",
+                            "flexWrap": "wrap",
+                            "gap": "4px",
+                        },
                     ),
                 ],
-                style={"marginBottom": "20px"},
+                style={
+                    "padding": "12px 16px",
+                    "marginBottom": "16px",
+                    "borderBottom": "1px solid #dee2e6",
+                },
+            ),
+            html.Div(id="stat-cards-container", style={"marginBottom": "8px"}),
+            # Task panels
+            html.Div(
+                [
+                    dcc.Graph(
+                        id="queue-size-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                        config={"displayModeBar": False},
+                    ),
+                    dcc.Graph(
+                        id="tasks-starting-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                        config={"displayModeBar": False},
+                    ),
+                    dcc.Graph(
+                        id="tasks-completed-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                        config={"displayModeBar": False},
+                    ),
+                    dcc.Graph(
+                        id="task-runtimes-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                        config={"displayModeBar": False},
+                    ),
+                    dcc.Graph(
+                        id="tasks-completed-trend-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                        config={"displayModeBar": False},
+                    ),
+                    dcc.Graph(
+                        id="preemption-events-graph",
+                        style={
+                            "aspectRatio": "12 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                        config={"displayModeBar": False},
+                    ),
+                ],
+                style={
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(auto-fit, minmax(400px, 1fr))",
+                    "gap": "10px",
+                },
+            ),
+            # Workforce section
+            html.H2(
+                "Workforce",
+                style={"marginTop": "24px", "marginBottom": "12px", "fontSize": "20px"},
             ),
             html.Div(
                 [
@@ -67,46 +255,82 @@ def layout(default_queue=None):
                             "margin": "5px",
                             "minWidth": "400px",
                         },
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
-                        id="queue-size-graph",
+                        id="active-environments-graph",
                         style={
                             "aspectRatio": "12 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
                         },
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
-                        id="tasks-starting-graph",
+                        id="worker-churn-graph",
                         style={
                             "aspectRatio": "12 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
                         },
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
-                        id="tasks-completed-graph",
+                        id="worker-lifetime-graph",
                         style={
                             "aspectRatio": "12 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
                         },
+                        config={"displayModeBar": False},
                     ),
+                ],
+                style={
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(auto-fit, minmax(400px, 1fr))",
+                    "gap": "10px",
+                },
+            ),
+            # Preemption panels in their own row (each spans 2 columns)
+            html.Div(
+                [
                     dcc.Graph(
-                        id="task-runtimes-graph",
+                        id="preemptions-by-env-graph",
                         style={
-                            "aspectRatio": "12 / 9",
+                            "aspectRatio": "10 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
                         },
+                        config={"displayModeBar": False},
                     ),
+                    dcc.Graph(
+                        id="env-efficiency-graph",
+                        style={
+                            "aspectRatio": "10 / 9",
+                            "margin": "5px",
+                            "minWidth": "400px",
+                        },
+                        config={"displayModeBar": False},
+                    ),
+                ],
+                style={
+                    "display": "grid",
+                    "gridTemplateColumns": "1fr 1fr",
+                    "gap": "10px",
+                },
+            ),
+            # CPU/RAM utilization
+            html.Div(
+                [
                     dcc.Graph(
                         id="cpu-util-graph",
                         style={
                             "aspectRatio": "12 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
+                            "maxWidth": "600px",
                         },
+                        config={"displayModeBar": False},
                     ),
                     dcc.Graph(
                         id="ram-util-graph",
@@ -114,21 +338,16 @@ def layout(default_queue=None):
                             "aspectRatio": "12 / 9",
                             "margin": "5px",
                             "minWidth": "400px",
+                            "maxWidth": "600px",
                         },
-                    ),
-                    dcc.Graph(
-                        id="preemption-events-graph",
-                        style={
-                            "aspectRatio": "12 / 9",
-                            "margin": "5px",
-                            "minWidth": "400px",
-                        },
+                        config={"displayModeBar": False},
                     ),
                 ],
                 style={
                     "display": "grid",
                     "gridTemplateColumns": "repeat(auto-fit, minmax(400px, 1fr))",
-                    "gap": "10px",  # Adds spacing between grid items
+                    "gap": "10px",
+                    "maxWidth": "1250px",
                 },
             ),
             html.H2("Errors"),
@@ -234,15 +453,6 @@ def layout(default_queue=None):
             ),
             dcc.Interval(id="interval", interval=60 * 1000, n_intervals=0),
             dcc.Interval(id="resize-interval", interval=500, n_intervals=0),
-            html.Script(
-                """
-                window.addEventListener('resize', function() {
-                    const event = new Event('resize');
-                    window.dispatchEvent(event);
-                });
-                """,
-                type="text/javascript",
-            ),
         ]
     )
 
@@ -255,8 +465,10 @@ def register_callbacks(app):
         Input("date-picker-single", "date"),
         Input("start-time", "value"),
         Input("queue-dropdown", "value"),
+        Input("workspace-store", "data"),
+        Input("group-by-toggle", "value"),
     )
-    def update_graph(n, start_date, start_time, queue):
+    def update_graph(n, start_date, start_time, queue, workspace, group_by):
         try:
             start = datetime.strptime(f"{start_date} {start_time}", "%Y-%m-%d %H:%M")
         except Exception as e:
@@ -265,43 +477,55 @@ def register_callbacks(app):
 
         end = datetime.utcnow()
 
+        by_env = group_by == "environment"
         dt = "15m"
-        query = f"""
-        let dt = {dt};
-        AppTraces
-        | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
-        | where Properties.queue == "{queue}"
-        | where Message startswith "Worker is still running"
-        | project queue=tostring(Properties.queue), environment=tostring(coalesce(Properties.environment, "<empty>")), worker_id=tostring(Properties.worker_id), TimeGenerated
-        | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
-        | mv-expand TimeGenerated, ActiveWorkers
-        | project TimeGenerated=todatetime(TimeGenerated), environment=tostring(environment), ActiveWorkers=todecimal(ActiveWorkers)
-        """
+
+        if by_env:
+            query = f"""
+            let dt = {dt};
+            AppTraces
+            | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
+            | where Properties.queue == "{queue}"
+            | where Message startswith "Worker is still running"
+            | project environment=tostring(coalesce(Properties.environment, "<empty>")), worker_id=tostring(Properties.worker_id), TimeGenerated
+            | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt by environment
+            | mv-expand TimeGenerated, ActiveWorkers
+            | project TimeGenerated=todatetime(TimeGenerated), environment=tostring(environment), ActiveWorkers=todecimal(ActiveWorkers)
+            """
+        else:
+            query = f"""
+            let dt = {dt};
+            AppTraces
+            | where TimeGenerated between (datetime({start.isoformat()}) .. datetime({end.isoformat()}))
+            | where Properties.queue == "{queue}"
+            | where Message startswith "Worker is still running"
+            | project worker_id=tostring(Properties.worker_id), TimeGenerated
+            | make-series ActiveWorkers=count_distinct(worker_id) default=0 on TimeGenerated from floor(datetime({start.isoformat()}), dt) to floor(datetime({end.isoformat()}), dt) step dt
+            | mv-expand TimeGenerated, ActiveWorkers
+            | project TimeGenerated=todatetime(TimeGenerated), ActiveWorkers=todecimal(ActiveWorkers)
+            """
 
         rows = run_query(query)
-        df = pd.DataFrame(rows, columns=["TimeGenerated", "environment", "ActiveWorkers"])
-        fig = px.line(
-            df,
-            x="TimeGenerated",
-            y="ActiveWorkers",
-            color="environment",
-            title="Active Workers",
-        )
-        fig.update_layout(
-            title={
-                "x": 0.5,  # Center the title
-                "y": 0.95,  # Move the title closer to the graph
-                "xanchor": "center",
-                "yanchor": "top",
-            },
-            margin={"t": 50},  # Adjusted top margin to balance title placement
-            showlegend=False,
-        )
+        if by_env:
+            df = pd.DataFrame(rows, columns=["TimeGenerated", "environment", "ActiveWorkers"])
+            fig = px.area(
+                df,
+                x="TimeGenerated",
+                y="ActiveWorkers",
+                color="environment",
+                title="Active Workers",
+                groupnorm=None,
+            )
+        else:
+            df = pd.DataFrame(rows, columns=["TimeGenerated", "ActiveWorkers"])
+            fig = px.area(df, x="TimeGenerated", y="ActiveWorkers", title="Active Workers")
 
-        df["ActiveWorkers"] = pd.to_numeric(df["ActiveWorkers"], errors="coerce")
-        max_y = df["ActiveWorkers"].max()
-        if max_y > 0:
-            fig.update_yaxes(range=[0, max_y * 1.1])
+        fig.update_layout(
+            title={"x": 0.5, "y": 0.95, "xanchor": "center", "yanchor": "top"},
+            margin={"t": 50},
+            showlegend=False,
+            yaxis={"rangemode": "tozero"},
+        )
 
         current_queue_text = f"{queue}" if queue else "No queue selected"
 
@@ -313,7 +537,7 @@ def register_callbacks(app):
         Output("date-picker-single", "date"),
         Output("start-time", "value"),
         Input("url", "search"),
-        Input("queue-dropdown", "value"),
+        State("queue-dropdown", "value"),
         prevent_initial_call=True,
     )
     def update_dropdown_from_url(search, current_queue):
@@ -335,3 +559,79 @@ def register_callbacks(app):
     )
     def update_url_from_dropdown(value, date, start_time):
         return f"?queue={value}&date={date}&start_time={start_time}"
+
+    @app.callback(
+        Output("date-picker-single", "date", allow_duplicate=True),
+        Output("start-time", "value", allow_duplicate=True),
+        Input("time-range-preset", "value"),
+        prevent_initial_call=True,
+    )
+    def apply_time_preset(preset):
+        now = datetime.utcnow()
+        durations = {"6h": 6, "12h": 12, "24h": 24, "3d": 72, "7d": 168}
+        hours = durations.get(preset, 24)
+        start = now - timedelta(hours=hours)
+        return start.date().isoformat(), start.strftime("%H:%M")
+
+    @app.callback(
+        Output("interval", "interval"),
+        Output("interval", "disabled"),
+        Input("refresh-interval-dropdown", "value"),
+    )
+    def update_refresh_interval(value):
+        if not value:
+            return 86_400_000, True
+        return value, False
+
+    @app.callback(
+        Output("workspace-store", "data"),
+        Output("workspace-display", "children"),
+        Input("queue-dropdown", "value"),
+    )
+    def resolve_workspace(queue):
+        if not queue:
+            return "", "—"
+        try:
+            query = f"""
+            AppTraces
+            | where Properties.queue == "{queue}"
+            | where isnotempty(Properties.azureml_workspace_name)
+            | summarize by ws=tostring(Properties.azureml_workspace_name)
+            | project ws
+            """
+            rows = run_query(query)
+            if rows:
+                workspaces = [r[0] for r in rows if r[0]]
+                if workspaces:
+                    # Use first workspace for queue filtering; show all in display
+                    display = ", ".join(sorted(workspaces))
+                    return workspaces[0], display
+        except Exception as e:
+            LOG.warning(f"Failed to resolve workspace for queue {queue}: {e}")
+        return "", "—"
+
+    @app.callback(
+        Output("queue-dropdown", "options"),
+        Input("workspace-store", "data"),
+        State("queue-dropdown", "value"),
+    )
+    def update_queue_options(workspace, current_queue):
+        if not workspace:
+            raise PreventUpdate
+        try:
+            q = f"""
+            AppTraces
+            | where isnotempty(Properties.queue)
+            | where Properties.azureml_workspace_name == "{workspace}"
+            | summarize LastSeen=max(TimeGenerated) by queue=tostring(Properties.queue)
+            | sort by LastSeen desc
+            | project queue
+            """
+            rows = run_query(q)
+            options = [{"label": r[0], "value": r[0]} for r in rows]
+            if current_queue and current_queue not in [o["value"] for o in options]:
+                options.insert(0, {"label": current_queue, "value": current_queue})
+            return options
+        except Exception as e:
+            LOG.warning(f"Failed to list queues for workspace {workspace}: {e}")
+            raise PreventUpdate from e
