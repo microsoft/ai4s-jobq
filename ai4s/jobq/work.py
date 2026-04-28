@@ -7,6 +7,7 @@ import queue
 import shlex
 import shutil
 import signal
+import sys
 import time
 import typing as ty
 from abc import ABC, abstractmethod
@@ -487,9 +488,12 @@ class ProcessPool(_AbstractAsyncContextManager["ProcessPool"]):
         # Use forkserver to avoid inheriting locked threading.Lock instances
         # from the parent process (e.g. Azure SDK credential/token caches).
         # Plain "fork" copies locks in their current state, causing deadlocks.
+        # On Windows the default is already "spawn" (safe), and "forkserver"
+        # is not available.
+        ctx = get_context("forkserver" if sys.platform != "win32" else "spawn")
         return ProcessPoolExecutor(
             self.pool_size,
-            mp_context=get_context("forkserver"),
+            mp_context=ctx,
             initializer=_process_pool_signal_handler,
         )
 
