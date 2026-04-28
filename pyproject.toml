@@ -32,6 +32,7 @@ dependencies = [
   "appdirs",
   "tenacity",
   "humanize",
+  "packaging",
 ]
 
 urls.repository = "https://github.com/microsoft/ai4s-jobq"

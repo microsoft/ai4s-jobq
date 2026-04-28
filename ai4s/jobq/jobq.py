@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import replace
 from datetime import timedelta
 from functools import partial
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from inspect import signature
 from typing import (
     Any,
@@ -21,6 +23,8 @@ from typing import (
 
 import azure.core.exceptions
 from azure.core.credentials_async import AsyncTokenCredential
+from packaging.requirements import Requirement
+from packaging.version import Version
 
 from ai4s.jobq.entities import LockLostError, Response, Task, WorkerCanceled
 
@@ -233,6 +237,7 @@ class JobQ:
         *,
         num_retries: int = 5,
         reply_requested: bool = False,
+        min_version: str | None = None,
         id: str | None = None,
         worker_interface: JobQBackendWorker | None = None,
     ) -> JobQFuture:
@@ -254,6 +259,8 @@ class JobQ:
             "num_retries": num_retries,
             "reply_requested": reply_requested,
         }
+        if min_version is not None:
+            task_kwargs["min_version"] = min_version
         if id is not None:
             task_kwargs["id"] = id
         task = Task(**task_kwargs)
@@ -278,7 +285,7 @@ class JobQ:
         with_heartbeat: bool = False,
         worker_id: str | None = None,
         worker_interface: JobQBackendWorker | None = None,
-    ) -> bool:
+    ) -> bool | None:
         """Gets one task from the queue (first pushed, first pulled), verifies the signature, and executes the command.
 
         If the signature is invalid, the task is deleted from the queue.
@@ -292,7 +299,8 @@ class JobQ:
             EmptyQueue: If the queue is empty.
 
         Returns:
-            True if the task was executed successfully, False otherwise.
+            True if the task was executed successfully, False if it failed,
+            None if the task was requeued due to a version mismatch.
         """
         # Export this environment variable such that inside the jobs we can know which queue we're working on.
         os.environ["JOBQ_QUEUE_NAME"] = self.full_name
@@ -302,6 +310,34 @@ class JobQ:
             with_heartbeat=with_heartbeat,
         ) as envelope:
             task = envelope.task
+
+            # Version gate: requeue if the installed package is too old.
+            if task.min_version is not None:
+                req = Requirement(task.min_version)
+                try:
+                    installed = Version(pkg_version(req.name))
+                except PackageNotFoundError:
+                    LOG.warning(
+                        "Task %s requires %s, but package %r is not installed. Requeuing.",
+                        task.id,
+                        task.min_version,
+                        req.name,
+                    )
+                    await envelope.requeue()
+                    await asyncio.sleep(5)
+                    return None
+
+                if installed not in req.specifier:
+                    LOG.warning(
+                        "Task %s requires %s, but installed version is %s. Requeuing.",
+                        task.id,
+                        task.min_version,
+                        installed,
+                    )
+                    await envelope.requeue()
+                    await asyncio.sleep(5)
+                    return None
+
             kwargs = task.kwargs
 
             # Log the starting of the task

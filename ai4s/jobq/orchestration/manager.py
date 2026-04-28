@@ -117,6 +117,7 @@ async def batch_enqueue(
     dry_run: bool = False,
     show_progress: bool = True,
     reply_requested: bool = False,
+    min_version: str | None = None,
 ) -> list[JobQFuture]:
     """Lists tasks from a WorkSpecification and pushes them onto a queue.
 
@@ -204,6 +205,7 @@ async def batch_enqueue(
                                     job,
                                     num_retries=num_retries,
                                     reply_requested=reply_requested,
+                                    min_version=min_version,
                                     worker_interface=worker_interface,
                                 )
                                 futures.append(fut)
@@ -568,6 +570,8 @@ async def launch_workers(
             worker_id_for_task = f"{worker_id}:{idx}" if num_workers > 1 else str(worker_id)
             set_context_dimensions(worker_id=worker_id_for_task)
             num_consecutive_failures = 0
+            num_consecutive_version_requeues = 0
+            max_version_requeues = int(os.environ.get("JOBQ_MAX_VERSION_REQUEUES", "100"))
             soft_limit_time = datetime.now() + time_limit
             async with AsyncExitStack() as worker_stack:
                 if TRACE:
@@ -653,10 +657,22 @@ async def launch_workers(
 
                         if show_progress:
                             progress.update(task_id, advance=1)
-                        if success:
+                        if success is None:
+                            # Version gate requeue — not a failure.
+                            num_consecutive_version_requeues += 1
+                            if num_consecutive_version_requeues > max_version_requeues:
+                                LOG.error(
+                                    "Worker is too old for all queued tasks "
+                                    "(%d consecutive version-gate requeues). Exiting.",
+                                    num_consecutive_version_requeues,
+                                )
+                                raise TooManyFailuresException
+                        elif success:
                             num_consecutive_failures = 0
+                            num_consecutive_version_requeues = 0
                         else:
                             num_consecutive_failures += 1
+                            num_consecutive_version_requeues = 0
                             if num_consecutive_failures > max_consecutive_failures:
                                 LOG.error(
                                     "Maximum number of consecutive failures reached. Exiting."
