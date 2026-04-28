@@ -49,17 +49,20 @@ Bug fixes:
 * Fixed pandas ``ChainedAssignmentError`` in the errors panel.
 * Fixed worker churn panel crash when the KQL response had fewer columns than
   expected.
-* **ProcessPool no longer deadlocks when the parent holds threading locks.**
+* **ProcessPool no longer deadlocks when the parent has background threads.**
   Both ``ProcessPool._create_pool()`` and the ``multiprocessing.Manager``
   used for log forwarding now use the ``forkserver`` start method instead of
-  the default ``fork``. With ``fork``, child and server processes inherit
-  copies of the parent's ``threading.Lock`` instances in their current
-  (locked) state—for example, locks held internally by
-  ``ManagedIdentityCredential`` for token caching or by ``aiohttp`` for
-  connection pooling. Because the owning thread does not exist in the child,
-  any code path that tries to acquire such a lock deadlocks. ``forkserver``
-  avoids this by forking from a clean, single-threaded server process. On
-  Windows, ``spawn`` is used instead (``forkserver`` is not available).
+  the default ``fork``. With ``fork``, child processes inherit the parent's
+  memory—including C-level locks held by native extensions such as the Azure
+  SDK (MSAL token cache), OpenSSL, or ``aiohttp`` connection pools. Because
+  the owning thread does not exist in the child, any code path that acquires
+  such a lock deadlocks. Python 3.12 made standard-library locks fork-safe,
+  but C-extension locks remain vulnerable. ``forkserver`` avoids the problem
+  by forking children from a clean, single-threaded server process. On
+  Windows, ``spawn`` is used instead (``forkserver`` is not available). This
+  fix is relevant for any deployment where ``ProcessPool`` workers run
+  alongside Azure SDK credentials or other native libraries with background
+  threads.
 
 
 3.9.2 (2026-04-24)
