@@ -664,7 +664,7 @@ async def launch_workers(
                                 raise TooManyFailuresException
                     except LockLostError:
                         LOG.info(
-                            "Worker %d: lock lost — retrying (not counted as failure).",
+                            "Worker %d: lock lost — retrying (not counting as failed).",
                             idx,
                         )
                         continue
