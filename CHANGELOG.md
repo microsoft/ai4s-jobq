@@ -1,6 +1,16 @@
 CHANGELOG
 =========
 
+3.11.1 (2026-04-29)
+------------------
+
+Fixes:
+
+* **Clarified lock-loss retry log message in ``launch_workers``.**
+  Changed wording from "not counted as failure" to "not counting as
+  failed" for consistency.
+
+
 3.11.0 (2026-04-29)
 -------------------
 
