@@ -156,15 +156,12 @@ multi_region_workforce = MultiRegionWorkforce(
 )
 ```
 
-Make sure the process file-descriptor soft limit is high enough before
-launching: each reader thread holds several keep-alive sockets plus the
-credential subprocess pipe, and `RLIMIT_NOFILE=1024` (the Ubuntu default for
-non-login shells, for example what `tmux` inherits) overflows quickly.
-`ulimit -n 65536` is a safe baseline. If file descriptors run out, the
-typical symptom is **not** a clean error: `subprocess`
-can't fork `/usr/bin/az`, the `AzureCliCredential` token refresh fails, the
-cached AAD token expires, and AML returns `403 not having read/browse access
-to ... runs` for every region.
+Before launching, raise the process file-descriptor soft limit
+(`ulimit -n 65536`). The Ubuntu default of `1024` is exhausted quickly
+once reads fan out across 10+ regions, and the resulting failure mode
+is a confusing `403` cascade rather than a clean error. See the
+[Troubleshooting](95-troubleshooting.md) page for the full symptom
+list and other common failures.
 
 
 ## Access to data
