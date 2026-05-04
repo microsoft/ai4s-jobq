@@ -42,6 +42,17 @@ class LockLostError(Exception):
     """
 
 
+class PermanentTaskFailure(Exception):  # noqa: N818 — public API name
+    """Raised by task callbacks to signal a non-retryable failure.
+
+    When the consumer loop sees this exception it skips the remaining retry
+    budget and dead-letters the message immediately.  Use it for failures
+    that are deterministic with respect to the task payload (for example,
+    a payload routed to the wrong queue, schema violations, or unsupported
+    workload configurations) where retrying would only burn worker time.
+    """
+
+
 @dataclass
 class Response:
     is_success: bool

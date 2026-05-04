@@ -22,7 +22,13 @@ from typing import (
 import azure.core.exceptions
 from azure.core.credentials_async import AsyncTokenCredential
 
-from ai4s.jobq.entities import LockLostError, Response, Task, WorkerCanceled
+from ai4s.jobq.entities import (
+    LockLostError,
+    PermanentTaskFailure,
+    Response,
+    Task,
+    WorkerCanceled,
+)
 
 from .backend.common import JobQBackend, JobQBackendWorker
 
@@ -443,6 +449,20 @@ class JobQ:
                     extra={
                         "task_id": task.id,
                         "event": "task_give_up",
+                    },
+                )
+                if task.reply_requested:
+                    await envelope.reply(Response(is_success=False, body=str(exc)))
+                await envelope.delete(success=False, error=str(exc))
+                return False
+
+            if isinstance(exc, PermanentTaskFailure):
+                LOG.error(
+                    f"Permanent failure for task {task.id}; skipping retries and "
+                    f"dead-lettering immediately.",
+                    extra={
+                        "task_id": task.id,
+                        "event": "task_permanent_failure",
                     },
                 )
                 if task.reply_requested:
