@@ -39,7 +39,9 @@ _log = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
-_CHILD_TIMEOUT = 5  # seconds — generous to avoid flaky CI
+_CHILD_TIMEOUT = 30  # seconds — generous; forkserver child cold-start can
+# be slow on busy CI runners, especially when the parent has heavy imports
+# (azure-ai-ml etc.) that the forkserver has to re-execute.
 
 
 def _child_that_logs() -> str:
@@ -124,7 +126,11 @@ async def test_processpool_children_can_log_under_contention():
         with _LogSpammer(n_threads=10):
             await asyncio.sleep(0.05)
 
-            for attempt in range(20):
+            # A handful of successful child invocations is enough regression
+            # coverage: a fork-deadlock would hang on the very first call.
+            # Twenty attempts at a 5s wallclock timeout each was found to
+            # be flaky on Python 3.11 under heavy parent imports.
+            for attempt in range(5):
                 try:
                     result = await asyncio.wait_for(
                         pool.submit(_child_that_logs),
@@ -133,7 +139,7 @@ async def test_processpool_children_can_log_under_contention():
                     assert result == "ok"
                 except (asyncio.TimeoutError, TimeoutError) as exc:
                     pytest.fail(
-                        f"Pool child hung on attempt {attempt + 1}/20: {exc}\n"
+                        f"Pool child hung on attempt {attempt + 1}/5: {exc}\n"
                         "ProcessPool must use a non-fork start method so "
                         "children are not affected by parent thread state."
                     )

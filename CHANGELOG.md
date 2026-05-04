@@ -1,6 +1,22 @@
 CHANGELOG
 =========
 
+Unreleased
+----------
+
+Features:
+
+* **``MultiRegionWorkforce`` opt-in parallel region reads.**
+  New constructor flag ``parallel_region_reads`` (default ``False``) fans out
+  the read-only per-region phases (``get_current_state``,
+  ``get_available_to_hire``, resume discovery) across a thread pool sized as
+  ``n // 5 + 1`` (cap 32). Writer phases stay outer-sequential. Measured ~11x
+  tick speedup on an 84-region fleet (~14.5 min -> ~1.3 min). Each tick now
+  logs a banner with uptime + gap-since-last, a ``summary`` and ``phases``
+  line, and per-phase summaries with slowest-3 + p50/max; per-region ``INFO``
+  lines are demoted to ``DEBUG``. Default behaviour is unchanged. (#66)
+
+
 3.11.1 (2026-04-29)
 ------------------
 
