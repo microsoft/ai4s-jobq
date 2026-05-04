@@ -114,7 +114,42 @@ information in commit messages, PR descriptions, comments, or code:
 - No internal hostnames or ingestion endpoints (e.g. `*.in.applicationinsights.azure.com`)
 - No specific customer or team names, internal project codenames
 - No specific region + SKU combinations that reveal internal infrastructure
+- No specific fleet sizes, cluster sizes, GPU counts, node counts, quota numbers,
+  capacity numbers, or region counts
+- No internal experiment names, benchmark names, dataset locations, or non-public
+  configuration values
+- No internal incident, security, or vulnerability details, or private operational constraints
+- No names of internal stakeholders unless they are already appropriate for the repository context
 - Keep descriptions generic: say "certain GPU SKUs" not "MI200 nodes in westus3"
+
+### Rewrite style
+
+Prefer generic but technically meaningful wording. Examples:
+
+- "updated the job configuration"
+- "improved scheduling behavior"
+- "adjusted resource selection logic"
+- "added support for a new configuration path"
+- "improved handling of backend-specific options"
+- "masked internal deployment details"
+
+### Checklist before finalizing a PR title, PR description, or commit message
+
+1. Does this reveal private infrastructure scale (counts of regions, fleets, clusters, GPUs)?
+2. Does this reveal internal region, tenant, subscription, or quota details?
+3. Does this reveal an internal codename or unreleased project?
+4. Does this reveal private operational constraints?
+5. Can the same engineering meaning be preserved with more generic wording?
+
+If yes to any of 1–4, rewrite to be safer and more generic.
+
+### Preferred PR description structure
+
+- Summary
+- Changes
+- Testing
+
+Keep the description concise and professional.
 
 ## Conventions
 
