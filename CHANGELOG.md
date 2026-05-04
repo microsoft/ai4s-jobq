@@ -13,7 +13,7 @@ Features:
   ``n // 5 + 1`` (cap 32). Writer phases stay outer-sequential. Measured ~11x
   tick speedup on an 84-region fleet (~14.5 min -> ~1.3 min). Each tick now
   logs a banner with uptime + gap-since-last, a ``summary`` and ``phases``
-  line, and per-phase rollups with slowest-3 + p50/max; per-region ``INFO``
+  line, and per-phase summaries with slowest-3 + p50/max; per-region ``INFO``
   lines are demoted to ``DEBUG``. Default behaviour is unchanged. (#66)
 
 
