@@ -706,6 +706,47 @@ class TestServiceBusRestBackend:
         assert caplog.text == ""
 
 
+@pytest.mark.asyncio
+async def test_lock_renewal_preserves_initial_lock_duration(monkeypatch):
+    backend = ServiceBusRestBackend(
+        queue_name="testq",
+        fqns="myns.servicebus.windows.net",
+        credential=_make_credential(),
+    )
+    backend._rest_client = AsyncMock(spec=ServiceBusRestClient)
+    backend._max_lock_renewal_seconds = 1
+
+    msg = _ReceivedMessage(
+        body="body",
+        message_id="msg-1",
+        lock_token="lock-1",
+        sequence_number=1,
+        delivery_count=1,
+        location_url="https://myns.servicebus.windows.net/testq/messages/1/lock-1",
+        lock_duration_seconds=300.0,
+    )
+
+    backend._rest_client.renew_lock = AsyncMock(return_value=30.0)
+
+    async def fast_wait(awaitable, timeout=None):
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+
+    monkeypatch.setattr(asyncio, "wait_for", fast_wait)
+
+    lock_lost_event = asyncio.Event()
+    task, stop_event = backend._start_lock_renewal(msg, interval=300, lock_lost_event=lock_lost_event)
+
+    await asyncio.sleep(0)
+    stop_event.set()
+    await task
+
+    backend._rest_client.renew_lock.assert_awaited()
+    timeout_arg = backend._rest_client.renew_lock.await_args.kwargs["timeout"]
+    assert timeout_arg.total == 100.0
+    assert not lock_lost_event.is_set()
+
+
 class TestServiceBusRestClientRetry:
     def _make_client(self, max_retries: int = 4) -> ServiceBusRestClient:
         client = ServiceBusRestClient(
