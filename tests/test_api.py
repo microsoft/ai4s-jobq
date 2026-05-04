@@ -33,12 +33,14 @@ async def test_generate(async_queue, mocker):
                     {"value": 1},
                     num_retries=1,
                     reply_requested=False,
+                    min_version=None,
                     worker_interface=worker_interface,
                 ),
                 call(
                     {"value": 2},
                     num_retries=1,
                     reply_requested=False,
+                    min_version=None,
                     worker_interface=worker_interface,
                 ),
             ]

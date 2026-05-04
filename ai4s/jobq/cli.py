@@ -335,6 +335,12 @@ async def main(
     default=None,
     help="Duplicate detection window, e.g. 7d, 12h (Service Bus only, default: 7d).",
 )
+@click.option(
+    "--min-version",
+    default=None,
+    type=str,
+    help="PEP 508 requirement specifier for the target package, e.g. 'my-package>=1.2'.",
+)
 @click.pass_context
 async def push(
     ctx: click.Context,
@@ -345,6 +351,7 @@ async def push(
     wait: bool,
     num_enqueue_workers: int,
     dedup_window: timedelta | None,
+    min_version: str | None,
 ) -> None:
     """
     Enqueue a new job to the job queue.
@@ -381,6 +388,7 @@ async def push(
             num_retries=num_retries,
             show_progress=show_progress,
             reply_requested=wait,
+            min_version=min_version,
         )
         if wait:
             LOG.info("Waiting for results...")

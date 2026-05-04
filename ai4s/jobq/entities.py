@@ -69,6 +69,7 @@ class Task:
     num_retries: int
     error: str | None = None
     reply_requested: bool = False
+    min_version: str | None = None
     id: str | None = field(
         default_factory=lambda: uuid.uuid4().hex if not JOBQ_DETERMINISTIC_IDS else None
     )
@@ -85,6 +86,7 @@ class Task:
             "reply_requested": self.reply_requested,
             "kwargs": json.dumps(self.kwargs, cls=JSON_ENCODER),
             "num_retries": self.num_retries,
+            "min_version": self.min_version,
         }
 
     def serialize(self) -> str:
@@ -101,6 +103,7 @@ class Task:
                 kwargs=json.loads(data["kwargs"], cls=JSON_DECODER),
                 num_retries=data["num_retries"],
                 reply_requested=data["reply_requested"],
+                min_version=data.get("min_version", None),
             )
         if data["version"] == 0:
             return Task(
