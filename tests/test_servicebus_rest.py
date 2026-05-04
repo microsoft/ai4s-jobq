@@ -735,7 +735,9 @@ async def test_lock_renewal_preserves_initial_lock_duration(monkeypatch):
     monkeypatch.setattr(asyncio, "wait_for", fast_wait)
 
     lock_lost_event = asyncio.Event()
-    task, stop_event = backend._start_lock_renewal(msg, interval=300, lock_lost_event=lock_lost_event)
+    task, stop_event = backend._start_lock_renewal(
+        msg, interval=300, lock_lost_event=lock_lost_event
+    )
 
     await asyncio.sleep(0)
     stop_event.set()
