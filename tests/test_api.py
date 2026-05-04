@@ -1,5 +1,9 @@
 from unittest.mock import call
 
+import pytest
+from azure.storage.queue.aio import QueueClient
+
+from ai4s.jobq.entities import Task
 from ai4s.jobq.orchestration.manager import batch_enqueue, launch_workers
 from ai4s.jobq.work import Processor, SequentialProcessor, WorkSpecification
 
@@ -57,6 +61,31 @@ async def test_process(async_queue, mocker):
 
     await launch_workers(async_queue, Proc())
     assert calls == [call(value=1), call(value=2)]
+
+
+@pytest.mark.asyncio
+async def test_retry_exhaustion_moves_task_to_failed_queue(async_queue, azurite_connstr):
+    async def failing_callback(**kwargs):
+        raise RuntimeError("boom")
+
+    async with QueueClient.from_connection_string(azurite_connstr, "jobs-failed") as failed_queue:
+        await failed_queue.clear_messages()
+
+    await async_queue.push({"value": 1}, num_retries=0)
+
+    result = await async_queue.pull_and_execute(failing_callback)
+
+    assert result is False
+    assert await async_queue.get_approximate_size() == 0
+
+    async with QueueClient.from_connection_string(azurite_connstr, "jobs-failed") as failed_queue:
+        failed_messages = [msg async for msg in failed_queue.receive_messages()]
+
+    assert len(failed_messages) == 1
+
+    failed_task = Task.deserialize(failed_messages[0].content)
+    assert failed_task.num_retries == 0
+    assert failed_task.kwargs == {"value": 1}
 
 
 def func(fn: str, value: str) -> None:
