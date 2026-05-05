@@ -42,6 +42,17 @@ class LockLostError(Exception):
     """
 
 
+class PermanentTaskFailure(Exception):  # noqa: N818 — public API name
+    """Raised by task callbacks to signal a non-retryable failure.
+
+    When the consumer loop sees this exception it skips the remaining retry
+    budget and dead-letters the message immediately.  Use it for failures
+    that are deterministic with respect to the task payload (for example,
+    a payload routed to the wrong queue, schema violations, or unsupported
+    workload configurations) where retrying would only burn worker time.
+    """
+
+
 @dataclass
 class Response:
     is_success: bool
@@ -95,6 +106,16 @@ class Task:
     @staticmethod
     def deserialize(string: str) -> "Task":
         data = json.loads(string)
+        if "version" not in data:
+            # Legacy format written by one-shot tooling (e.g. replay scripts)
+            # that hand-crafted the envelope without version/id fields.
+            # Treat as v1 with a deterministically computed id.
+            return Task(
+                id=None,
+                kwargs=json.loads(data["kwargs"], cls=JSON_DECODER),
+                num_retries=data.get("num_retries", 5),
+                reply_requested=data.get("reply_requested", False),
+            )
         if data["version"] == 1:
             return Task(
                 id=data["id"],
