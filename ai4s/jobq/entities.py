@@ -106,6 +106,16 @@ class Task:
     @staticmethod
     def deserialize(string: str) -> "Task":
         data = json.loads(string)
+        if "version" not in data:
+            # Legacy format written by one-shot tooling (e.g. replay scripts)
+            # that hand-crafted the envelope without version/id fields.
+            # Treat as v1 with a deterministically computed id.
+            return Task(
+                id=None,
+                kwargs=json.loads(data["kwargs"], cls=JSON_DECODER),
+                num_retries=data.get("num_retries", 5),
+                reply_requested=data.get("reply_requested", False),
+            )
         if data["version"] == 1:
             return Task(
                 id=data["id"],
