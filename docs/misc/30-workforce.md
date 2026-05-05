@@ -135,6 +135,35 @@ If you then run the `MultiregionWorkforce`, it will automatically scale the work
 multi_region_workforce.run()
 ```
 
+### Scaling to many regions
+
+For fleets of 10+ regions, pass `parallel_region_reads=True` to fan out the
+read-only per-region calls (`get_current_state`, `get_available_to_hire`,
+resume discovery) across a thread pool sized as `n // 5 + 1` (cap 32). Writer
+phases (`parallel_hire`, `parallel_lay_off`, `parallel_resume`) stay
+outer-sequential because each already runs an inner 8-thread pool. Measured
+~11x tick speedup on an 84-region fleet (~14.5 min -> ~1.3 min of read-only
+phase). Each tick now logs a banner, a `summary`/`phases` line pair, and a
+slowest-3 + p50/max summary per phase; per-region INFO lines are demoted to
+DEBUG.
+
+```python
+multi_region_workforce = MultiRegionWorkforce(
+    storage_account=storage_account,
+    queue_name=queue_name,
+    workforces=workforces,
+    parallel_region_reads=True,
+)
+```
+
+Before launching, raise the process file-descriptor soft limit
+(`ulimit -n 65536`). The Ubuntu default of `1024` is exhausted quickly
+once reads fan out across 10+ regions, and the resulting failure mode
+is a confusing `403` cascade rather than a clean error. See the
+[Troubleshooting](95-troubleshooting.md) page for the full symptom
+list and other common failures.
+
+
 ## Access to data
 
 If filesystem access to data is required (read/write), blob storage can be _mounted_ using the following tweak to setting up the `command`:
